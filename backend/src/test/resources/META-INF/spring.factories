@@ -1,0 +1,2 @@
+org.springframework.context.ApplicationContextInitializer=tn.elitetunisia.TestContextInitializer
+org.springframework.test.context.TestExecutionListener=tn.elitetunisia.EarlyTestPropertySetter

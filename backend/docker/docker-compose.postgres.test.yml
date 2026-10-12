@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  postgres-test:
+    image: postgres:15
+    container_name: et_postgres_test
+    environment:
+      POSTGRES_USER: et_test
+      POSTGRES_PASSWORD: et_test
+      POSTGRES_DB: et_test_db
+    ports:
+      - "15432:5432" # isolated port to avoid conflicts
+    volumes:
+      - et_postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U et_test -d et_test_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  et_postgres_test_data:
+    name: et_postgres_test_data
