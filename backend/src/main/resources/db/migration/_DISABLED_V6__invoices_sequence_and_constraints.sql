@@ -1,7 +1,8 @@
--- Create invoice sequence and ensure invoice reference uniqueness; safe for Postgres and H2
+-- DISABLED: redundant with central database/migrations V7__invoices.sql
+-- Original filename: V6__invoices_sequence_and_constraints.sql
+-- Content preserved for audit
 DO $$
 BEGIN
-    -- Postgres: create sequence if not exists and unique constraint on reference
     IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relkind = 'S' AND relname = 'invoice_seq') THEN
         CREATE SEQUENCE invoice_seq START 1;
     END IF;
@@ -11,7 +12,6 @@ BEGIN
         ALTER TABLE invoices ADD CONSTRAINT uk_invoices_reference UNIQUE (reference);
     END IF;
 EXCEPTION WHEN undefined_table THEN
-    -- Fallback for H2 during tests: create sequence and unique index if possible
     BEGIN
         CREATE SEQUENCE IF NOT EXISTS invoice_seq START WITH 1;
     EXCEPTION WHEN OTHERS THEN
@@ -25,7 +25,6 @@ EXCEPTION WHEN undefined_table THEN
 END;
 $$;
 
--- Ensure join table for invoice payments exists
 CREATE TABLE IF NOT EXISTS invoice_payments (
   invoice_id uuid NOT NULL,
   payment_id uuid NOT NULL,

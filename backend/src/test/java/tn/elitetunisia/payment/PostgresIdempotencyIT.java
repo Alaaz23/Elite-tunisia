@@ -2,63 +2,73 @@ package tn.elitetunisia.payment;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
+
+import tn.elitetunisia.PostgresTestHelper;
+import tn.elitetunisia.TestFixtures;
+import tn.elitetunisia.quote.QuoteRequest;
+import tn.elitetunisia.quote.QuoteService;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
 @Tag("postgres")
 public class PostgresIdempotencyIT {
+    static {
+        PostgresTestHelper.configurePostgresIfRequested();
+    }
+
     @Autowired PaymentService paymentService;
     @Autowired PaymentRepository payments;
+    @Autowired TestFixtures fixtures;
+    @Autowired QuoteService quotes;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @BeforeEach
+    void requirePostgres() throws Exception {
+        PostgresTestHelper.requirePostgresIfRequested(jdbc);
+    }
 
     @Test
     public void concurrentRequestsWithSameIdempotencyKey_resultInSinglePayment() throws Exception {
-        var quoteId = UUID.randomUUID();
-        var customerId = UUID.randomUUID();
-        // This IT is gated and requires a PostgreSQL test environment with real DB and suitable fixtures.
-        // If Postgres is not available the project test run should skip @Tag("postgres") tests.
-
+        var fixture = fixtures.createBooking(24);
+        var request = new QuoteRequest(Instant.now().plusSeconds(10 * 86400L).truncatedTo(java.time.temporal.ChronoUnit.MICROS), false,
+                java.math.BigDecimal.ZERO, "", "", List.of());
+        var quote = quotes.create(fixture.booking().id(), request, fixture.owner(), null);
+        quotes.send(quote.id(), fixture.owner(), null);
+        quotes.customerAction(quote.id(), fixture.owner(), "accept", null, null);
         var key = "concurrent-key-" + UUID.randomUUID();
         int threads = 8;
         ExecutorService ex = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
-        Callable<PaymentEntity> task = () -> {
-            start.await();
-            try {
-                return paymentService.createForQuote(quoteId, customerId, new BigDecimal("100.00"), PaymentMethod.CARD, key);
-            } catch (Exception e) {
-                throw e;
+        try {
+            List<Future<UUID>> futures = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(ex.submit(() -> {
+                    start.await();
+                    return paymentService.createForQuote(quote.id(), fixture.owner(), quote.totalAmount(),
+                            PaymentMethod.CARD, key).getId();
+                }));
             }
-        };
+            start.countDown();
 
-        Future<PaymentEntity>[] futures = new Future[threads];
-        for (int i = 0; i < threads; i++) futures[i] = ex.submit(task);
-        start.countDown();
-
-        PaymentEntity first = null;
-        int successes = 0;
-        for (int i = 0; i < threads; i++) {
-            try {
-                var p = futures[i].get(30, TimeUnit.SECONDS);
-                if (first == null) first = p;
-                else assertEquals(first.getId(), p.getId());
-                successes++;
-            } catch (ExecutionException ee) {
-                // record failures; allowed if some threads hit conflict but DB must contain single row
+            UUID paymentId = futures.get(0).get(30, TimeUnit.SECONDS);
+            for (Future<UUID> future : futures) {
+                assertEquals(paymentId, future.get(30, TimeUnit.SECONDS));
             }
+            assertEquals(1L, payments.countByIdempotencyKey(key),
+                    "There must be exactly one payment row for the idempotency key");
+        } finally {
+            ex.shutdownNow();
         }
-        ex.shutdownNow();
-
-        long count = payments.countByIdempotencyKey(key);
-        assertEquals(1L, count, "There must be exactly one payment row for the idempotency key");
-        assertTrue(successes >= 1, "At least one call must succeed");
     }
 }

@@ -32,20 +32,8 @@ import tn.elitetunisia.booking.*;
 @SpringBootTest
 @AutoConfigureMockMvc
 class BookingEngineTests {
-    // When ELITE_POSTGRES_TEST=true we need to target a Postgres DB; otherwise use the 'test' profile H2.
     static {
-        String postgres = System.getenv("ELITE_POSTGRES_TEST");
-        if (postgres != null && postgres.equalsIgnoreCase("true")) {
-            System.setProperty("spring.datasource.url", System.getenv().getOrDefault("DATABASE_URL", "jdbc:postgresql://localhost:5432/elite_test"));
-            System.setProperty("spring.datasource.username", System.getenv().getOrDefault("DATABASE_USERNAME", "elite"));
-            String pwd = System.getenv().getOrDefault("DATABASE_PASSWORD", "elite_dev_only");
-            if (!pwd.isBlank()) { System.setProperty("spring.datasource.password", pwd); }
-            System.setProperty("spring.datasource.driver-class-name", "org.postgresql.Driver");
-            System.setProperty("spring.flyway.enabled", "true");
-            // Clear active test profile so application.yml Postgres settings are used when requested
-            System.clearProperty("spring.profiles.active");
-        } else {
-            // Ensure test profile is active for H2 in-memory DB and force H2 datasource to override environment
+        if (!PostgresTestHelper.configurePostgresIfRequested()) {
             System.setProperty("spring.profiles.active", "test");
             System.setProperty("spring.datasource.url", "jdbc:h2:mem:elite_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
             System.setProperty("spring.datasource.username", "sa");
@@ -55,6 +43,7 @@ class BookingEngineTests {
         }
     }
     @Autowired BookingService service;
+    @Autowired BookingOperationService operations;
     @Autowired BookingRepository bookings;
     @Autowired UserRepository users;
     @Autowired RoleRepository roles;
@@ -123,7 +112,13 @@ class BookingEngineTests {
         assertEquals("Internal only", service.adminGet(booking.id()).internalNote());
         BookingSummary confirmed = service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null);
         assertNotNull(confirmed.confirmedAt());
+        assertEquals("INVALID_OPERATION", assertThrows(BookingException.class,
+                () -> service.transition(booking.id(), BookingStatus.IN_PROGRESS, admin(), null)).getCode());
+        operations.recordPickup(booking.id(), admin(), 1000, 80);
         service.transition(booking.id(), BookingStatus.IN_PROGRESS, admin(), null);
+        assertEquals("INVALID_OPERATION", assertThrows(BookingException.class,
+                () -> service.transition(booking.id(), BookingStatus.COMPLETED, admin(), null)).getCode());
+        operations.recordReturn(booking.id(), admin(), 1120, 65, null, new BigDecimal("35.500"));
         service.transition(booking.id(), BookingStatus.COMPLETED, admin(), null);
         assertThrows(BookingException.class, () -> service.transition(booking.id(), BookingStatus.PENDING, admin(), null));
         BookingSummary pending = service.create(fixture.request(), fixture.owner(), null);
@@ -196,7 +191,13 @@ class BookingEngineTests {
     private RequestPostProcessor customer(Fixture fixture) {
         return user(fixture.email()).authorities(new SimpleGrantedAuthority("ROLE_CUSTOMER"), new SimpleGrantedAuthority("bookings:read"), new SimpleGrantedAuthority("bookings:create"), new SimpleGrantedAuthority("bookings:cancel"));
     }
-    private UUID admin() { return users.findByEmailIgnoreCase("superadmin@example.test").orElseThrow().getId(); }
+    private UUID admin() {
+        return users.findByEmailIgnoreCase("superadmin@example.test").map(UserEntity::getId).orElseGet(() -> {
+            UserEntity admin = new UserEntity("superadmin@example.test", "not-a-login-password");
+            admin.addRole(roles.findById("SUPER_ADMIN").orElseThrow());
+            return users.saveAndFlush(admin).getId();
+        });
+    }
     private BookingRequest request(Fixture fixture, Instant start, Instant end) { return new BookingRequest(fixture.vehicle(), start, end, "Tunis", "Tunis", null); }
     private Fixture fixture() {
         String suffix = UUID.randomUUID().toString(); String email = suffix + "@example.test";

@@ -1,0 +1,3 @@
+CREATE SEQUENCE IF NOT EXISTS booking_reference_seq;
+CREATE SEQUENCE IF NOT EXISTS quote_reference_seq;
+CREATE SEQUENCE IF NOT EXISTS invoice_seq;

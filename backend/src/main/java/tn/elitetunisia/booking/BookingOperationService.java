@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tn.elitetunisia.vehicle.VehicleRepository;
 import tn.elitetunisia.vehicle.VehicleStatus;
 import tn.elitetunisia.common.audit.AuditService;
+import tn.elitetunisia.invoice.InvoiceService;
 import java.util.List;
 
 @Service
@@ -15,15 +16,20 @@ public class BookingOperationService {
     private final BookingRepository bookings;
     private final VehicleRepository vehicles;
     private final AuditService audit;
+    private final BookingEventRepository events;
+    private final InvoiceService invoices;
 
-    public BookingOperationService(BookingOperationRepository ops, BookingRepository bookings, VehicleRepository vehicles, AuditService audit) {
+    public BookingOperationService(BookingOperationRepository ops, BookingRepository bookings, VehicleRepository vehicles,
+            AuditService audit, BookingEventRepository events, InvoiceService invoices) {
         this.ops = ops; this.bookings = bookings; this.vehicles = vehicles; this.audit = audit;
+        this.events = events; this.invoices = invoices;
     }
 
     @Transactional
     public BookingOperationEntity recordPickup(UUID bookingId, UUID actorId, Integer odometerStart, Integer fuelStart) {
         var booking = bookings.findLocked(bookingId).orElseThrow(() -> new BookingException("BOOKING_NOT_FOUND", "Booking not found"));
         if (booking.getStatus() != BookingStatus.CONFIRMED) throw new BookingException("INVALID_OPERATION", "Booking must be CONFIRMED to pickup.");
+        validateMeterAndFuel(odometerStart, fuelStart);
 
         // idempotence: if a pickup already exists for this booking, return it
         List<BookingOperationEntity> existing = ops.findByBookingIdOrderByCreatedAtAsc(bookingId);
@@ -32,7 +38,6 @@ public class BookingOperationService {
         // set vehicle status to RENTED and validate vehicle
         var vehicle = vehicles.findLocked(booking.getVehicle().getId()).orElseThrow(() -> new BookingException("VEHICLE_NOT_FOUND", "Vehicle not found"));
 
-        if (odometerStart == null || odometerStart < 0) throw new BookingException("INVALID_DATA", "Invalid odometer value.");
         // if there are previous operations, ensure odometer is non-decreasing
         for (var e : existing) {
             Integer prev = e.getOdometerEnd() == null ? e.getOdometerStart() : e.getOdometerEnd();
@@ -44,8 +49,11 @@ public class BookingOperationService {
         ops.saveAndFlush(op);
 
         // transition booking to IN_PROGRESS
+        BookingStatus previousStatus = booking.getStatus();
         booking.transition(BookingStatus.IN_PROGRESS, java.time.Instant.now());
         bookings.flush();
+        events.saveAndFlush(new BookingEventEntity(bookingId, actorId, "BOOKING_PICKUP", previousStatus,
+                BookingStatus.IN_PROGRESS, java.time.Instant.now()));
 
         // audit
         try { audit.recordAudit(actorId, "BOOKING_PICKUP", "BOOKING", bookingId, null, "SUCCESS"); } catch (Exception ignore) {}
@@ -56,6 +64,11 @@ public class BookingOperationService {
     @Transactional
     public BookingOperationEntity recordReturn(UUID bookingId, UUID actorId, Integer odometerEnd, Integer fuelEnd, String damages, BigDecimal extraCharges) {
         var booking = bookings.findLocked(bookingId).orElseThrow(() -> new BookingException("BOOKING_NOT_FOUND", "Booking not found"));
+        validateMeterAndFuel(odometerEnd, fuelEnd);
+        if (damages != null && damages.length() > 5000) throw new BookingException("INVALID_DATA", "Damage notes exceed the allowed length.");
+        if (extraCharges != null && (extraCharges.signum() < 0 || extraCharges.scale() > 3 || extraCharges.precision() - extraCharges.scale() > 9)) {
+            throw new BookingException("INVALID_DATA", "Extra charges must be non-negative and have at most three decimal places.");
+        }
 
         // require pickup exists
         List<BookingOperationEntity> existing = ops.findByBookingIdOrderByCreatedAtAsc(bookingId);
@@ -66,7 +79,6 @@ public class BookingOperationService {
         // idempotence: if a return already exists, return it
         for (var e : existing) if ("RETURN".equals(e.getAction())) return e;
 
-        if (odometerEnd == null || odometerEnd < 0) throw new BookingException("INVALID_DATA", "Invalid odometer value.");
         if (pickup.getOdometerStart() != null && odometerEnd < pickup.getOdometerStart()) throw new BookingException("INVALID_DATA", "Return odometer cannot be less than pickup.");
 
         var vehicle = vehicles.findLocked(booking.getVehicle().getId()).orElseThrow(() -> new BookingException("VEHICLE_NOT_FOUND", "Vehicle not found"));
@@ -76,14 +88,30 @@ public class BookingOperationService {
 
         BookingOperationEntity op = new BookingOperationEntity(bookingId, actorId, "RETURN", null, odometerEnd, null, fuelEnd, damages, extraCharges == null ? BigDecimal.ZERO : extraCharges);
         ops.saveAndFlush(op);
+        if (extraCharges != null && extraCharges.signum() > 0) invoices.createReturnChargeInvoice(booking, extraCharges);
 
         // transition booking to COMPLETED
+        BookingStatus previousStatus = booking.getStatus();
         booking.transition(BookingStatus.COMPLETED, java.time.Instant.now());
         bookings.flush();
+        events.saveAndFlush(new BookingEventEntity(bookingId, actorId, "BOOKING_RETURN", previousStatus,
+                BookingStatus.COMPLETED, java.time.Instant.now()));
 
         // audit
         try { audit.recordAudit(actorId, "BOOKING_RETURN", "BOOKING", bookingId, null, "SUCCESS"); } catch (Exception ignore) {}
 
         return op;
+    }
+
+    @Transactional(readOnly = true)
+    public List<BookingOperationEntity> list(UUID bookingId) {
+        if (!bookings.existsById(bookingId)) throw new BookingException("BOOKING_NOT_FOUND", "Booking not found");
+        return ops.findByBookingIdOrderByCreatedAtAsc(bookingId);
+    }
+
+    private void validateMeterAndFuel(Integer odometer, Integer fuel) {
+        if (odometer == null || odometer < 0 || fuel == null || fuel < 0 || fuel > 100) {
+            throw new BookingException("INVALID_DATA", "Odometer must be non-negative and fuel must be between 0 and 100.");
+        }
     }
 }

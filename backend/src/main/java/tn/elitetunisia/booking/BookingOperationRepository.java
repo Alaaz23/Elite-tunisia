@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface BookingOperationRepository extends JpaRepository<BookingOperationEntity, UUID> {
     List<BookingOperationEntity> findByBookingIdOrderByCreatedAtAsc(UUID bookingId);
+    boolean existsByBookingIdAndAction(UUID bookingId, String action);
 }

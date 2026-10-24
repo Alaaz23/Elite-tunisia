@@ -35,6 +35,9 @@
     "typescript": "~6.0.2",
     "vitest": "^5.0.0"
   },
+  "overrides": {
+    "vite": "^8.3.3"
+  },
   "optionalDependencies": {
     "@oxc-parser/binding-win32-x64-msvc": "^0.150.0"
   }

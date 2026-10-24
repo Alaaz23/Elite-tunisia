@@ -22,20 +22,11 @@ import tn.elitetunisia.quote.QuoteRepository;
 @org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
 public class PaymentPostgresIntegrationTests {
-    static {
-        String postgres = System.getenv("ELITE_POSTGRES_TEST");
-        if (postgres != null && postgres.equalsIgnoreCase("true")) {
-            System.setProperty("spring.datasource.url", System.getenv().getOrDefault("DATABASE_URL", "jdbc:postgresql://localhost:5432/elite_test"));
-            System.setProperty("spring.datasource.username", System.getenv().getOrDefault("DATABASE_USERNAME", "elite"));
-            String pwd = System.getenv().getOrDefault("DATABASE_PASSWORD", "elite_dev_only");
-            if (!pwd.isBlank()) { System.setProperty("spring.datasource.password", pwd); }
-            System.setProperty("spring.datasource.driver-class-name", "org.postgresql.Driver");
-            System.setProperty("spring.flyway.enabled", "true");
-            System.clearProperty("spring.profiles.active");
-        } else {
-            System.setProperty("spring.profiles.active", "test");
-            System.setProperty("spring.datasource.url", "jdbc:h2:mem:elite_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
-            System.setProperty("spring.datasource.username", "sa");
+static {
+    if (!PostgresTestHelper.configurePostgresIfRequested()) {
+        System.setProperty("spring.profiles.active", "test");
+        System.setProperty("spring.datasource.url", "jdbc:h2:mem:elite_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE");
+        System.setProperty("spring.datasource.username", "sa");
             System.setProperty("spring.datasource.driver-class-name", "org.h2.Driver");
             System.setProperty("spring.flyway.enabled", "false");
             System.setProperty("spring.jpa.hibernate.ddl-auto", "create-drop");

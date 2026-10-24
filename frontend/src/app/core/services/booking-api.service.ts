@@ -14,6 +14,7 @@ export interface Booking extends BookingPreview {
 }
 export interface BookingPolicy { businessTimeZone: string; pendingBlocks: boolean; priceRule: string; options: unknown[]; }
 export interface BookingFilters { reference?: string; customer?: string; vehicle?: string; status?: string; startDate?: string; endDate?: string; page: number; size: number; }
+export interface BookingOperation { id: string; action: 'PICKUP' | 'RETURN'; odometerStart: number | null; odometerEnd: number | null; fuelStart: number | null; fuelEnd: number | null; damages: string | null; extraCharges: number; createdAt: string; }
 @Injectable({ providedIn: 'root' })
 export class BookingApiService {
   private readonly http = inject(HttpClient);
@@ -34,6 +35,13 @@ export class BookingApiService {
   action(id: string, action: 'confirm' | 'reject' | 'cancel' | 'start' | 'complete') { return this.http.patch<Booking>(`${this.root}/api/admin/bookings/${id}/${action}`, {}); }
   update(id: string, input: { pickupLocation: string; dropoffLocation: string; internalNote: string | null }) {
     return this.http.put<Booking>(`${this.root}/api/admin/bookings/${id}`, input);
+  }
+  operations(id: string) { return this.http.get<BookingOperation[]>(`${this.root}/api/admin/bookings/${id}/operations`); }
+  pickup(id: string, input: { odometerStart: number; fuelStart: number }) {
+    return this.http.post<BookingOperation>(`${this.root}/api/admin/bookings/${id}/pickup`, input);
+  }
+  returnVehicle(id: string, input: { odometerEnd: number; fuelEnd: number; damages: string | null; extraCharges: number }) {
+    return this.http.post<BookingOperation>(`${this.root}/api/admin/bookings/${id}/return`, input);
   }
 }
 export function toBookingInstant(local: string, zone: string): string {

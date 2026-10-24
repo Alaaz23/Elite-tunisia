@@ -10,6 +10,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.DisabledException;
@@ -18,6 +20,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import tn.elitetunisia.auth.service.InvalidRefreshTokenException;
 import tn.elitetunisia.catalogue.CatalogueConflictException;
@@ -31,6 +35,8 @@ import tn.elitetunisia.user.service.UserNotFoundException;
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ApiExceptionHandler {
+    private static final Logger logger = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(tn.elitetunisia.payment.PaymentException.class)
     ResponseEntity<ProblemDetail> handlePayment(tn.elitetunisia.payment.PaymentException exception) {
         HttpStatus status = switch (exception.getCode()) {
@@ -67,6 +73,12 @@ public class ApiExceptionHandler {
                 .collect(Collectors.toMap(error -> error.getField(), error -> error.getDefaultMessage(), (first, second) -> first));
         problem.setProperty("fieldErrors", errors);
         return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    ResponseEntity<ProblemDetail> handleConstraintViolation() {
+        return ResponseEntity.badRequest()
+                .body(problem(HttpStatus.BAD_REQUEST, "Les paramètres envoyés sont invalides."));
     }
 
     @ExceptionHandler(EmailAlreadyRegisteredException.class)
@@ -143,7 +155,12 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ProblemDetail> handleUnexpected(Exception exception) {
+    ResponseEntity<ProblemDetail> handleUnexpected(Exception exception, WebRequest request) {
+        String path = request instanceof ServletWebRequest servletRequest
+                ? servletRequest.getRequest().getRequestURI()
+                : "unknown";
+        logger.error("Unhandled API exception on {} ({}).", path, exception.getClass().getName());
+        logger.debug("Unhandled API exception details.", exception);
         return ResponseEntity.internalServerError().body(problem(HttpStatus.INTERNAL_SERVER_ERROR, "Une erreur est survenue. Veuillez réessayer."));
     }
 

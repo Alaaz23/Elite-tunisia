@@ -26,15 +26,18 @@ public class BookingService {
     private final ZoneId businessZone;
     private final tn.elitetunisia.common.pricing.RentalPricingService pricing;
     private final tn.elitetunisia.quote.QuoteRepository quotes;
+    private final BookingOperationRepository operations;
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
     public BookingService(BookingRepository bookings, VehicleRepository vehicles, CustomerRepository customers,
             BookingEventRepository events, AuditService audit, JdbcTemplate jdbc,
             @Value("${app.booking.time-zone:Africa/Tunis}") String zone,
-            tn.elitetunisia.common.pricing.RentalPricingService pricing, tn.elitetunisia.quote.QuoteRepository quotes) {
+            tn.elitetunisia.common.pricing.RentalPricingService pricing, tn.elitetunisia.quote.QuoteRepository quotes,
+            BookingOperationRepository operations) {
         this.bookings = bookings; this.vehicles = vehicles; this.customers = customers; this.events = events;
         this.audit = audit; this.jdbc = jdbc; this.businessZone = ZoneId.of(zone);
         this.pricing = pricing;
         this.quotes = quotes;
+        this.operations = operations;
     }
     public String timeZone() { return businessZone.getId(); }
     public void validateDates(Instant start, Instant end) {
@@ -119,6 +122,15 @@ public class BookingService {
         // Idempotence: if already in target state, no second effect should occur
         if (booking.getStatus() == target) {
             return summary(booking, true, true);
+        }
+        if (!booking.getStatus().canTransitionTo(target)) {
+            throw new BookingException("INVALID_STATUS_TRANSITION", "Cette réservation ne peut pas changer vers cet état.");
+        }
+        if (target == BookingStatus.IN_PROGRESS && !operations.existsByBookingIdAndAction(id, "PICKUP")) {
+            throw new BookingException("INVALID_OPERATION", "Record the vehicle pickup before starting the booking.");
+        }
+        if (target == BookingStatus.COMPLETED && !operations.existsByBookingIdAndAction(id, "RETURN")) {
+            throw new BookingException("INVALID_OPERATION", "Record the vehicle return before completing the booking.");
         }
         if (target == BookingStatus.CONFIRMED) {
             if (!booking.getStatus().canTransitionTo(target)) throw new BookingException("INVALID_STATUS_TRANSITION", "Cette réservation ne peut pas être confirmée.");

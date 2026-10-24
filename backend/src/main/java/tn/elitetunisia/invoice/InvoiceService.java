@@ -60,6 +60,22 @@ public class InvoiceService {
         return invoice;
     }
 
+    @Transactional
+    public InvoiceEntity createReturnChargeInvoice(BookingEntity booking, java.math.BigDecimal charge) {
+        if (charge == null || charge.signum() <= 0) throw new IllegalArgumentException("A positive return charge is required.");
+        Long sequence = jdbc.queryForObject("select nextval('invoice_seq')", Long.class);
+        String reference = String.format("INV-%s-%06d",
+                Instant.now().toString().substring(0, 10).replace("-", ""), sequence);
+        Instant issued = Instant.now();
+        InvoiceEntity invoice = new InvoiceEntity(reference, null, booking, booking.getCustomer().getId(),
+                booking.getCurrency(), charge, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, charge, issued, null);
+        invoice.addLine(new InvoiceLineEntity("RETURN_CHARGE", "Frais supplémentaires constatés au retour",
+                1, charge, java.util.Map.of("bookingReference", booking.getReference()), 0));
+        invoices.saveAndFlush(invoice);
+        events.saveAndFlush(new InvoiceEventEntity(invoice, "CREATED", "Invoice created for vehicle return charges."));
+        return invoice;
+    }
+
     public java.util.List<InvoiceEntity> listForCustomer(UUID customerId) { return invoices.findByCustomerId(customerId); }
     public InvoiceEntity getForCustomer(UUID id, UUID customerId) { var inv = invoices.findById(id).orElseThrow(() -> new RuntimeException("INVOICE_NOT_FOUND")); if (!inv.getCustomerId().equals(customerId)) throw new RuntimeException("ACCESS_DENIED"); return inv; }
     public java.util.List<InvoiceEntity> adminList() { return invoices.findAll(); }

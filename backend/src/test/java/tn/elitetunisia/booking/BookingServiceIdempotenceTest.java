@@ -22,6 +22,7 @@ public class BookingServiceIdempotenceTest {
     JdbcTemplate jdbc;
     tn.elitetunisia.common.pricing.RentalPricingService pricing;
     tn.elitetunisia.quote.QuoteRepository quotes;
+    BookingOperationRepository operations;
     BookingService service;
 
     @BeforeEach
@@ -33,7 +34,8 @@ public class BookingServiceIdempotenceTest {
         jdbc = mock(JdbcTemplate.class);
         pricing = mock(tn.elitetunisia.common.pricing.RentalPricingService.class);
         quotes = mock(tn.elitetunisia.quote.QuoteRepository.class);
-        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes);
+        operations = mock(BookingOperationRepository.class);
+        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations);
     }
 
     @Test

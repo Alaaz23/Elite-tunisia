@@ -1,6 +1,8 @@
 package tn.elitetunisia.invoice;
 
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -34,13 +36,20 @@ public class CustomerInvoiceController {
         return org.springframework.http.ResponseEntity.ok().headers(headers).body(bytes);
     }
 
-    public record InvoiceSummary(UUID id, String reference, java.math.BigDecimal totalAmount, String currency, InstantDTO issuedAt) {
-        public static InvoiceSummary from(InvoiceEntity e) { return new InvoiceSummary(e.getId(), e.getReference(), e.getTotalAmount(), e.getCurrency(), new InstantDTO(e.getIssuedAt())); }
+    public record InvoiceSummary(UUID id, String reference, java.math.BigDecimal totalAmount, String currency, java.time.Instant issuedAt) {
+        public static InvoiceSummary from(InvoiceEntity e) { return new InvoiceSummary(e.getId(), e.getReference(), e.getTotalAmount(), e.getCurrency(), e.getIssuedAt()); }
     }
-    public static class InvoiceDetail {
-        public UUID id; public String reference; public java.math.BigDecimal totalAmount; public String currency; public InstantDTO issuedAt; public java.util.List<?> lines;
-        public static InvoiceDetail from(InvoiceEntity e) { var d = new InvoiceDetail(); d.id = e.getId(); d.reference = e.getReference(); d.totalAmount = e.getTotalAmount(); d.currency = e.getCurrency(); d.issuedAt = new InstantDTO(e.getIssuedAt()); d.lines = e.getLines().stream().map(l -> java.util.Map.of("description", l.getDescription(), "amount", l.getAmount())).toList(); return d; }
+    public record InvoiceDetail(UUID id, String reference, java.math.BigDecimal totalAmount, String currency,
+            java.time.Instant issuedAt, List<InvoiceLine> lines) {
+        public static InvoiceDetail from(InvoiceEntity e) {
+            List<InvoiceLine> lines = e.getLines().stream()
+                    .map(line -> new InvoiceLine(line.getId(), line.getType(), line.getDescription(), line.getQuantity(),
+                            line.getUnitPrice(), line.getAmount(), line.getPosition(), line.getMetadata()))
+                    .toList();
+            return new InvoiceDetail(e.getId(), e.getReference(), e.getTotalAmount(), e.getCurrency(), e.getIssuedAt(), lines);
+        }
     }
 
-    public record InstantDTO(java.time.Instant v) { }
+    public record InvoiceLine(UUID id, String type, String description, int quantity, java.math.BigDecimal unitPrice,
+            java.math.BigDecimal amount, int position, Map<String, String> metadata) { }
 }

@@ -47,7 +47,11 @@ test.describe.serial('Booking engine with real API', () => {
     await page.getByRole('button', { name: 'Vérifier disponibilité' }).click();
     await expect(page.getByRole('region', { name: 'Récapitulatif' })).toBeVisible();
     await expect(page.getByText('Disponible pour cette période.', { exact: true })).toBeVisible();
+    const bookingResponse = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/bookings');
     await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
+    const created = await bookingResponse;
+    expect(created.status(), await created.text()).toBe(201);
     await expect(page).toHaveURL(/\/customer\/bookings\/[a-f0-9-]+$/);
     bookingId = page.url().split('/').at(-1)!;
     reference = await page.getByRole('heading', { level: 1 }).innerText();
@@ -104,6 +108,52 @@ test.describe.serial('Booking engine with real API', () => {
     await expect(page.locator('header .badge')).toHaveText('Annulée');
     const response = await request.get(`/api/vehicles/${vehicleId}/availability`, { params: { startDateTime: start.toInstant().toString(), endDateTime: end.toInstant().toString() } });
     expect((await response.json()).available).toBe(true);
+  });
+
+  test('staff records pickup and return; return charges appear on a customer invoice', async ({ page, request }) => {
+    const ownerToken = await apiLogin(request, customerEmail, password);
+    const booking = await mutate(request, ownerToken, 'POST', '/api/bookings', {
+      vehicleId, startDateTime: start.toInstant().toString(), endDateTime: end.toInstant().toString(),
+      pickupLocation: 'Tunis', dropoffLocation: 'Tunis',
+    });
+    const adminToken = await apiLogin(request, 'superadmin@example.test', 'Test-Admin-123!');
+    await mutate(request, adminToken, 'PATCH', `/api/admin/bookings/${booking.id}/confirm`, {});
+
+    await login(page, agentEmail, password, true);
+    const driverName = `Chauffeur ${suffix}`;
+    const licenseNumber = `LIC-${suffix}`;
+    await page.goto('/admin/drivers');
+    await page.locator('input[formcontrolname="firstName"]').fill(driverName);
+    await page.locator('input[formcontrolname="lastName"]').fill('Test');
+    await page.locator('input[formcontrolname="phone"]').fill('+216 20 123 456');
+    await page.locator('input[formcontrolname="licenseNumber"]').fill(licenseNumber);
+    await page.locator('input[formcontrolname="certified"]').check();
+    await page.getByRole('button', { name: 'Enregistrer le chauffeur' }).click();
+    await expect(page.getByRole('heading', { name: `${driverName} Test` })).toBeVisible();
+
+    await page.goto(`/admin/bookings/${booking.id}`);
+    await page.locator('select[formcontrolname="driverId"]').selectOption({ label: `${driverName} Test · ${licenseNumber}` });
+    await page.locator('input[formcontrolname="requireCertified"]').check();
+    await page.getByRole('button', { name: 'Affecter le chauffeur' }).click();
+    await expect(page.getByText(`Chauffeur affecté : ${driverName} Test.`)).toBeVisible();
+    await page.locator('input[formcontrolname="odometerStart"]').fill('12500');
+    await page.locator('input[formcontrolname="fuelStart"]').fill('80');
+    await page.getByRole('button', { name: 'Enregistrer la prise en charge' }).click();
+    await expect(page.locator('header .badge')).toHaveText('En cours');
+
+    await page.locator('input[formcontrolname="odometerEnd"]').fill('12640');
+    await page.locator('input[formcontrolname="fuelEnd"]').fill('65');
+    await page.locator('textarea[formcontrolname="damages"]').fill('Éraflure du pare-chocs');
+    await page.locator('input[formcontrolname="extraCharges"]').fill('35.5');
+    await page.getByRole('button', { name: 'Enregistrer la restitution' }).click();
+    await expect(page.locator('header .badge')).toHaveText('Terminée');
+    await expect(page.getByText('Dommages : Éraflure du pare-chocs', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Frais supplémentaires :/)).toBeVisible();
+
+    const invoices = await request.get('/api/invoices', { headers: { Authorization: `Bearer ${ownerToken}` } });
+    expect(invoices.status()).toBe(200);
+    const issued = await invoices.json() as Array<{ totalAmount: number; reference: string }>;
+    expect(issued.some((invoice) => invoice.totalAmount === 35.5 && invoice.reference.startsWith('INV-'))).toBe(true);
   });
 });
 

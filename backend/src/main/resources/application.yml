@@ -4,9 +4,9 @@ spring:
   profiles:
     default: dev
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/elite_tunisia}
-    username: ${DATABASE_USERNAME:elite}
-    password: ${DATABASE_PASSWORD:elite_dev_only}
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
@@ -39,7 +39,7 @@ app:
     time-zone: ${BOOKING_TIME_ZONE:Africa/Tunis}
   security:
     jwt:
-      secret: ${JWT_SECRET:local-development-secret-change-this-32-bytes-minimum}
+      secret: ${JWT_SECRET}
       access-token-minutes: 15
       refresh-token-days: 30
     secure-cookies: ${SECURE_COOKIES:false}

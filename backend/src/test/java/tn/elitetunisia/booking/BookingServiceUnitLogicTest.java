@@ -26,13 +26,14 @@ public class BookingServiceUnitLogicTest {
     @Mock org.springframework.jdbc.core.JdbcTemplate jdbc;
     @Mock tn.elitetunisia.common.pricing.RentalPricingService pricing;
     @Mock QuoteRepository quotes;
+    @Mock BookingOperationRepository operations;
 
     BookingService svc;
 
     @BeforeEach
     void init() {
         MockitoAnnotations.openMocks(this);
-        svc = new BookingService(bookings, vehicles, customers, events, audit, jdbc, "UTC", pricing, quotes);
+        svc = new BookingService(bookings, vehicles, customers, events, audit, jdbc, "UTC", pricing, quotes, operations);
     }
 
     @Test

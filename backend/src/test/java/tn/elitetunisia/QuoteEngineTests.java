@@ -27,6 +27,10 @@ import tn.elitetunisia.quote.*;
 import tn.elitetunisia.common.pricing.RentalPricingService;
 @SpringBootTest(properties = "app.quotes.default-tax-amount=1.2345") @AutoConfigureMockMvc @ActiveProfiles("test")
 class QuoteEngineTests {
+    static {
+        PostgresTestHelper.configurePostgresIfRequested();
+    }
+
     @Autowired QuoteService service;
     @Autowired QuoteRepository quotes;
     @Autowired BookingService bookingService;

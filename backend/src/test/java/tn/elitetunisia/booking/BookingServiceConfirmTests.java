@@ -21,6 +21,7 @@ public class BookingServiceConfirmTests {
     JdbcTemplate jdbc;
     tn.elitetunisia.common.pricing.RentalPricingService pricing;
     tn.elitetunisia.quote.QuoteRepository quotes;
+    BookingOperationRepository operations;
     BookingService service;
 
     @BeforeEach
@@ -32,7 +33,8 @@ public class BookingServiceConfirmTests {
         jdbc = mock(JdbcTemplate.class);
         pricing = mock(tn.elitetunisia.common.pricing.RentalPricingService.class);
         quotes = mock(tn.elitetunisia.quote.QuoteRepository.class);
-        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes);
+        operations = mock(BookingOperationRepository.class);
+        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations);
         // inject mock EntityManager
         jakarta.persistence.EntityManager em = mock(jakarta.persistence.EntityManager.class);
         try { java.lang.reflect.Field f = BookingService.class.getDeclaredField("entityManager"); f.setAccessible(true); f.set(service, em); } catch (Exception e) { throw new RuntimeException(e); }

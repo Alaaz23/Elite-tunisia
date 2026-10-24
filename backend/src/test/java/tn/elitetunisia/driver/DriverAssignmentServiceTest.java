@@ -17,7 +17,6 @@ public class DriverAssignmentServiceTest {
     BookingRepository bookings;
     DriverRepository drivers;
     BookingDriverAssignmentRepository assignments;
-    org.springframework.jdbc.core.JdbcTemplate jdbc;
     DriverAssignmentService svc;
 
     @BeforeEach
@@ -25,21 +24,20 @@ public class DriverAssignmentServiceTest {
         bookings = mock(BookingRepository.class);
         drivers = mock(DriverRepository.class);
         assignments = mock(BookingDriverAssignmentRepository.class);
-        jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
-        svc = new DriverAssignmentService(drivers, bookings, assignments, jdbc);
+        svc = new DriverAssignmentService(drivers, bookings, assignments);
     }
 
     @Test
     void assignAndUnassignHappyPath() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(b));
         when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.PENDING);
         when(b.getStartDateTime()).thenReturn(Instant.now().plusSeconds(3600));
         when(b.getEndDateTime()).thenReturn(Instant.now().plusSeconds(7200));
         DriverEntity d = new DriverEntity("A","B","+216...");
         // set id via reflection not necessary for logic
-        when(drivers.findById(driverId)).thenReturn(Optional.of(d));
+        when(drivers.findLockedById(driverId)).thenReturn(Optional.of(d));
         when(assignments.overlaps(eq(driverId), any(), any(), eq(bookingId))).thenReturn(0L);
         when(assignments.findByBookingId(bookingId)).thenReturn(null);
         when(assignments.save(any())).thenAnswer(i -> i.getArgument(0));
@@ -57,12 +55,12 @@ public class DriverAssignmentServiceTest {
     void assignFailsWhenOverlap() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(b));
         when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.PENDING);
         when(b.getStartDateTime()).thenReturn(Instant.now().plusSeconds(3600));
         when(b.getEndDateTime()).thenReturn(Instant.now().plusSeconds(7200));
         DriverEntity d = new DriverEntity("A","B","+216...");
-        when(drivers.findById(driverId)).thenReturn(Optional.of(d));
+        when(drivers.findLockedById(driverId)).thenReturn(Optional.of(d));
         when(assignments.overlaps(eq(driverId), any(), any(), eq(bookingId))).thenReturn(1L);
 
         var ex = assertThrows(RuntimeException.class, () -> svc.assignDriver(bookingId, driverId));
@@ -73,7 +71,7 @@ public class DriverAssignmentServiceTest {
     void assignFailsWhenBookingStatusInvalid() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(b));
         when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.CANCELLED);
         var ex = assertThrows(RuntimeException.class, () -> svc.assignDriver(bookingId, driverId));
         assertEquals("BOOKING_STATUS_NO_DRIVER", ex.getMessage());

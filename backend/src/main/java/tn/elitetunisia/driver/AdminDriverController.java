@@ -15,8 +15,9 @@ public class AdminDriverController {
     public AdminDriverController(DriverService service) { this.service = service; }
 
     @PostMapping
-    public ResponseEntity<DriverEntity> create(@RequestBody CreateDriverRequest req) {
-        var d = service.create(req.firstName, req.lastName, req.phone);
+    public ResponseEntity<DriverEntity> create(@jakarta.validation.Valid @RequestBody CreateDriverRequest req) {
+        var d = service.create(req.firstName, req.lastName, req.phone, req.licenseNumber,
+                req.licenseExpiry, Boolean.TRUE.equals(req.certified), req.notes);
         return ResponseEntity.ok(d);
     }
 
@@ -26,5 +27,25 @@ public class AdminDriverController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deactivate(@PathVariable UUID id) { service.deactivate(id); return ResponseEntity.noContent().build(); }
 
-    public static class CreateDriverRequest { public String firstName; public String lastName; public String phone; }
+    public static class CreateDriverRequest {
+        @jakarta.validation.constraints.NotBlank
+        @jakarta.validation.constraints.Size(max = 80)
+        public String firstName;
+
+        @jakarta.validation.constraints.NotBlank
+        @jakarta.validation.constraints.Size(max = 80)
+        public String lastName;
+
+        @jakarta.validation.constraints.NotBlank
+        @jakarta.validation.constraints.Size(max = 40)
+        public String phone;
+
+        @jakarta.validation.constraints.NotBlank
+        @jakarta.validation.constraints.Size(max = 80)
+        public String licenseNumber;
+        public java.time.Instant licenseExpiry;
+        public Boolean certified;
+        @jakarta.validation.constraints.Size(max = 2000)
+        public String notes;
+    }
 }

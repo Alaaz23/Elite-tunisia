@@ -20,6 +20,8 @@ public class BookingOperationServiceTest {
     BookingRepository bookings;
     VehicleRepository vehicles;
     AuditService audit;
+    BookingEventRepository events;
+    tn.elitetunisia.invoice.InvoiceService invoices;
     BookingOperationService svc;
 
     @BeforeEach
@@ -28,7 +30,9 @@ public class BookingOperationServiceTest {
         bookings = mock(BookingRepository.class);
         vehicles = mock(VehicleRepository.class);
         audit = mock(AuditService.class);
-        svc = new BookingOperationService(ops, bookings, vehicles, audit);
+        events = mock(BookingEventRepository.class);
+        invoices = mock(tn.elitetunisia.invoice.InvoiceService.class);
+        svc = new BookingOperationService(ops, bookings, vehicles, audit, events, invoices);
     }
 
     @Test
@@ -76,5 +80,27 @@ public class BookingOperationServiceTest {
 
         var ex = assertThrows(BookingException.class, () -> svc.recordReturn(bookingId, actor, 1200, 60, null, BigDecimal.ZERO));
         assertEquals("INVALID_OPERATION", ex.getCode());
+    }
+
+    @Test
+    void pickupAndReturnValidateFuelAndCharges() {
+        UUID bookingId = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.CONFIRMED);
+        when(booking.getVehicle()).thenReturn(mock(VehicleEntity.class));
+        when(vehicles.findLocked(any())).thenReturn(Optional.of(mock(VehicleEntity.class)));
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of());
+
+        assertEquals("INVALID_DATA", assertThrows(BookingException.class,
+                () -> svc.recordPickup(bookingId, actor, 100, 101)).getCode());
+
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+        assertEquals("INVALID_DATA", assertThrows(BookingException.class,
+                () -> svc.recordReturn(bookingId, actor, 120, 50, null, new BigDecimal("-1"))).getCode());
+        assertEquals("INVALID_DATA", assertThrows(BookingException.class,
+                () -> svc.recordReturn(bookingId, actor, 120, 101, null, BigDecimal.ZERO)).getCode());
     }
 }

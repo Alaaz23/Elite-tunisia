@@ -18,10 +18,20 @@ import tn.elitetunisia.quote.QuoteService;
 @EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
 @Tag("postgres")
 public class PostgresInvoiceConcurrencyIT {
+    static {
+        tn.elitetunisia.PostgresTestHelper.configurePostgresIfRequested();
+    }
+
     @Autowired InvoiceService invoiceService;
     @Autowired InvoiceRepository invoices;
     @Autowired TestFixtures fixtures;
     @Autowired QuoteService quotes;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @org.junit.jupiter.api.BeforeEach
+    void requirePostgres() throws Exception {
+        tn.elitetunisia.PostgresTestHelper.requirePostgresIfRequested(jdbc);
+    }
 
     @Test
     public void concurrentInvoiceCreationProducesDistinctReferences() throws Exception {

@@ -1,4 +1,6 @@
--- Add unique constraint to payments.idempotency_key to enforce cross-instance idempotency
+-- DISABLED: redundant with central database/migrations V6__payments.sql
+-- Original filename: V5__payments_idempotency_unique.sql
+-- Content preserved for audit
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -9,11 +11,9 @@ BEGIN
         ALTER TABLE payments ADD CONSTRAINT uk_payments_idempotency_key UNIQUE (idempotency_key);
     END IF;
 EXCEPTION WHEN undefined_table THEN
-    -- If running on H2 during tests, create unique index in H2-compatible syntax
     BEGIN
         CREATE UNIQUE INDEX IF NOT EXISTS uk_payments_idempotency_key ON payments (idempotency_key);
     EXCEPTION WHEN OTHERS THEN
-        -- ignore if not supported in this environment
         RAISE NOTICE 'Could not create unique index for idempotency_key in this environment';
     END;
 END;

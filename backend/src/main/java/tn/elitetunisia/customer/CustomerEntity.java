@@ -49,6 +49,7 @@ public class CustomerEntity {
     public String getFirstName() { return firstName; }
     public String getLastName() { return lastName; }
     public String getPhone() { return phone; }
+    public String getCustomerLevel() { return customerLevel; }
     public void update(String firstName, String lastName, String phone) {
         this.firstName = firstName;
         this.lastName = lastName;

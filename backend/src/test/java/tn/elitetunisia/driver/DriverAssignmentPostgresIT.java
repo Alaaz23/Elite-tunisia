@@ -2,51 +2,78 @@ package tn.elitetunisia.driver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.UUID;
+import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
+
+import tn.elitetunisia.PostgresTestHelper;
+import tn.elitetunisia.TestFixtures;
 
 @SpringBootTest
-@ActiveProfiles("test")
-@EnabledIfEnvironmentVariable(named = "enable.postgres.it", matches = "true")
+@EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
 public class DriverAssignmentPostgresIT {
-    @Autowired DriverAssignmentService svc;
+    static {
+        PostgresTestHelper.configurePostgresIfRequested();
+    }
+
+    @Autowired DriverAssignmentService service;
     @Autowired BookingDriverAssignmentRepository assignments;
+    @Autowired DriverRepository drivers;
+    @Autowired TestFixtures fixtures;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @org.junit.jupiter.api.BeforeEach
+    void requirePostgres() throws Exception {
+        PostgresTestHelper.requirePostgresIfRequested(jdbc);
+    }
 
     @Test
-    @Transactional
-    public void concurrentAssignmentsOneWins() throws Exception {
-        // This test must be run against the Postgres test DB started via docker compose.
-        UUID booking1 = UUID.randomUUID(); UUID booking2 = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
-        // Create two threads that attempt to assign same driver for overlapping periods.
-        // Implementation note: this test assumes bookings exist with given IDs. In a fuller integration
-        // test we would create bookings via repositories; here we check advisory lock integration.
-        Instant start = Instant.now().plusSeconds(3600);
-        Instant end = start.plusSeconds(3600);
+    public void concurrentAssignmentsAllowExactlyOneOverlappingBooking() throws Exception {
+        var first = fixtures.createBooking(24);
+        var second = fixtures.createBooking(24);
+        var driver = new DriverEntity("Integration", "Driver", "+21600000000");
+        driver.setLicenseNumber("test-" + UUID.randomUUID());
+        var savedDriver = drivers.saveAndFlush(driver);
+        UUID driverId = savedDriver.getId();
 
-        var t1 = new Thread(() -> {
-            try {
-                svc.assignDriver(booking1, driverId);
-            } catch (RuntimeException ex) {
-                // swallow for assertion later
-            }
-        });
-        var t2 = new Thread(() -> {
-            try {
-                svc.assignDriver(booking2, driverId);
-            } catch (RuntimeException ex) {
-                // swallow
-            }
-        });
-        t1.start(); t2.start();
-        t1.join(); t2.join();
-        long count = assignments.count();
-        assertTrue(count <= 1, "At most one assignment should be present");
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> firstAttempt = executor.submit(() -> assignAfterBarrier(
+                    ready, start, first.booking().id(), driverId));
+            Future<Boolean> secondAttempt = executor.submit(() -> assignAfterBarrier(
+                    ready, start, second.booking().id(), driverId));
+
+            ready.await();
+            start.countDown();
+
+            assertNotEquals(firstAttempt.get(), secondAttempt.get(),
+                    "Exactly one concurrent assignment should succeed.");
+            assertEquals(1, (assignments.findByBookingId(first.booking().id()) != null ? 1 : 0)
+                    + (assignments.findByBookingId(second.booking().id()) != null ? 1 : 0));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private boolean assignAfterBarrier(CountDownLatch ready, CountDownLatch start, UUID bookingId, UUID driverId)
+            throws InterruptedException {
+        ready.countDown();
+        start.await();
+        try {
+            service.assignDriver(bookingId, driverId);
+            return true;
+        } catch (RuntimeException exception) {
+            if ("DRIVER_NOT_AVAILABLE".equals(exception.getMessage())) return false;
+            throw exception;
+        }
     }
 }

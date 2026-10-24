@@ -67,7 +67,9 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
                 {"categories:manage", "Gérer les catégories"}, {"bookings:read", "Consulter les réservations"},
                 {"bookings:create", "Créer ses demandes"}, {"bookings:manage", "Gérer les réservations"}, {"bookings:cancel", "Annuler les réservations"},
                 {"quotes:read", "Consulter les devis"}, {"quotes:create", "Créer les devis"}, {"quotes:manage", "Gérer les devis"},
-                {"quotes:send", "Envoyer les devis"}, {"quotes:accept", "Accepter ses devis"}, {"quotes:reject", "Refuser ses devis"}
+                {"quotes:send", "Envoyer les devis"}, {"quotes:accept", "Accepter ses devis"}, {"quotes:reject", "Refuser ses devis"},
+                {"payments:create", "Payer ses devis acceptés"}, {"invoices:read", "Consulter ses factures"},
+                {"drivers:manage", "Gérer les chauffeurs"}, {"customers:read", "Consulter les clients"}
         };
         for (String[] permission : permissionNames) {
             permissions.findById(permission[0]).orElseGet(() -> permissions.save(new PermissionEntity(permission[0], permission[1])));
@@ -84,6 +86,10 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
                 staffRole.addPermission(permissions.findById("bookings:manage").orElseThrow());
                 staffRole.addPermission(permissions.findById("bookings:cancel").orElseThrow());
                 for (String permission : java.util.List.of("quotes:create", "quotes:manage", "quotes:send")) staffRole.addPermission(permissions.findById(permission).orElseThrow());
+                staffRole.addPermission(permissions.findById("drivers:manage").orElseThrow());
+            }
+            if (roleKey.equals("MANAGER")) {
+                staffRole.addPermission(permissions.findById("customers:read").orElseThrow());
             }
             for (String permission : java.util.List.of("vehicles:read", "brands:read", "categories:read")) {
                 staffRole.addPermission(permissions.findById(permission).orElseThrow());
@@ -96,7 +102,7 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
             roles.save(staffRole);
         }
         RoleEntity customer = roles.findById("CUSTOMER").orElseThrow();
-        for (String permission : java.util.List.of("bookings:read", "bookings:create", "bookings:cancel", "quotes:read", "quotes:accept", "quotes:reject")) {
+        for (String permission : java.util.List.of("bookings:read", "bookings:create", "bookings:cancel", "quotes:read", "quotes:accept", "quotes:reject", "payments:create", "invoices:read")) {
             customer.addPermission(permissions.findById(permission).orElseThrow());
         }
         customer.addPermission(permissions.findById("profile:read:self").orElseThrow());

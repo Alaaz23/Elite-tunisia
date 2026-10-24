@@ -13,6 +13,13 @@ public class AdminDriverAssignmentController {
 
     public AdminDriverAssignmentController(DriverAssignmentService service) { this.service = service; }
 
+    @GetMapping("/{bookingId}/driver")
+    public ResponseEntity<AssignResponse> get(@PathVariable UUID bookingId) {
+        var assignment = service.assignment(bookingId);
+        return assignment == null ? ResponseEntity.notFound().build()
+                : ResponseEntity.ok(new AssignResponse(assignment.getId(), assignment.getDriverId(), assignment.getBookingId()));
+    }
+
     @PostMapping("/{bookingId}/driver")
     public ResponseEntity<?> assign(@PathVariable UUID bookingId, @RequestBody AssignDriverRequest req) {
         boolean requireCertified = req.requireCertified != null ? req.requireCertified : false;

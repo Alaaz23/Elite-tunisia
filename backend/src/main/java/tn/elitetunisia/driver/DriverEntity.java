@@ -10,14 +10,23 @@ public class DriverEntity {
     @Id
     @GeneratedValue
     private UUID id;
+    @Column(nullable = false, length = 80)
     private String firstName;
+    @Column(nullable = false, length = 80)
     private String lastName;
+    @Column(nullable = false, length = 40)
     private String phone;
+    @Column(nullable = false)
     private boolean active = true;
+    @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
+    @Column(name = "license_number", nullable = false, unique = true, length = 80)
     private String licenseNumber;
+    @Column(name = "license_expiry")
     private Instant licenseExpiry;
+    @Column(nullable = false)
     private boolean certified = false;
+    @Column(columnDefinition = "text")
     private String notes;
 
     public DriverEntity() {}

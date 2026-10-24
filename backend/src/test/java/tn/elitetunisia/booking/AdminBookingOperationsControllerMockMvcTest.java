@@ -42,7 +42,20 @@ public class AdminBookingOperationsControllerMockMvcTest {
 class AdminBookingOperationsControllerMockConfig {
     @Bean
     public BookingOperationService bookingOperationService() {
-        return org.mockito.Mockito.mock(BookingOperationService.class);
+        var service = org.mockito.Mockito.mock(BookingOperationService.class);
+        UUID id = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        org.mockito.Mockito.when(service.recordPickup(org.mockito.ArgumentMatchers.any(java.util.UUID.class),
+                org.mockito.ArgumentMatchers.any(java.util.UUID.class), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BookingOperationEntity(id, actor, "PICKUP", 1000, null, 80, null, null, java.math.BigDecimal.ZERO));
+        org.mockito.Mockito.when(service.recordReturn(org.mockito.ArgumentMatchers.any(java.util.UUID.class),
+                org.mockito.ArgumentMatchers.any(java.util.UUID.class), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new BookingOperationEntity(id, actor, "RETURN", null, 1200, null, 70, null, java.math.BigDecimal.ZERO));
+        org.mockito.Mockito.when(service.list(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.List.of());
+        return service;
     }
     @Bean
     public tn.elitetunisia.user.service.AccountService accountService() {

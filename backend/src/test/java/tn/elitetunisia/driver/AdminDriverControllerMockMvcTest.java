@@ -32,8 +32,16 @@ public class AdminDriverControllerMockMvcTest {
     @Test
     @WithMockUser(authorities = {"drivers:manage","admin:access"})
     public void createAllowedWithAuthority() throws Exception {
-        mvc.perform(post("/api/admin/drivers").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+216...\"}"))
+        mvc.perform(post("/api/admin/drivers").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+21612345678\",\"licenseNumber\":\"TN-TEST-123\"}"))
             .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(authorities = {"drivers:manage","admin:access"})
+    public void createRequiresLicenseNumber() throws Exception {
+        mvc.perform(post("/api/admin/drivers").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+21612345678\"}"))
+            .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(driverService);
     }
 
     @Test

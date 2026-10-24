@@ -22,7 +22,7 @@ public class DriverAssignmentBusinessRulesTest {
 
     @BeforeEach
     void init() {
-        svc = new DriverAssignmentService(drivers, bookings, assignments, null);
+        svc = new DriverAssignmentService(drivers, bookings, assignments);
     }
 
     BookingEntity makeBooking(UUID id) {
@@ -38,10 +38,10 @@ public class DriverAssignmentBusinessRulesTest {
     public void cannotAssignExpiredLicense() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         var b = makeBooking(bookingId);
-        when(bookings.findById(eq(bookingId))).thenReturn(Optional.of(b));
+        when(bookings.findLocked(eq(bookingId))).thenReturn(Optional.of(b));
         var d = new DriverEntity("A","B","+216");
         d.setLicenseExpiry(Instant.now().minusSeconds(10));
-        when(drivers.findById(eq(driverId))).thenReturn(Optional.of(d));
+        when(drivers.findLockedById(eq(driverId))).thenReturn(Optional.of(d));
 
         var ex = assertThrows(RuntimeException.class, () -> svc.assignDriver(bookingId, driverId, false));
         assertEquals("DRIVER_LICENSE_EXPIRED", ex.getMessage());
@@ -51,11 +51,11 @@ public class DriverAssignmentBusinessRulesTest {
     public void cannotAssignWhenCertificationRequiredButMissing() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         var b = makeBooking(bookingId);
-        when(bookings.findById(eq(bookingId))).thenReturn(Optional.of(b));
+        when(bookings.findLocked(eq(bookingId))).thenReturn(Optional.of(b));
         var d = new DriverEntity("A","B","+216");
         d.setLicenseExpiry(Instant.now().plusSeconds(3600));
         d.setCertified(false);
-        when(drivers.findById(eq(driverId))).thenReturn(Optional.of(d));
+        when(drivers.findLockedById(eq(driverId))).thenReturn(Optional.of(d));
 
         var ex = assertThrows(RuntimeException.class, () -> svc.assignDriver(bookingId, driverId, true));
         assertEquals("DRIVER_NOT_CERTIFIED", ex.getMessage());
@@ -65,11 +65,11 @@ public class DriverAssignmentBusinessRulesTest {
     public void successfulAssignmentWhenValid() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
         var b = makeBooking(bookingId);
-        when(bookings.findById(eq(bookingId))).thenReturn(Optional.of(b));
+        when(bookings.findLocked(eq(bookingId))).thenReturn(Optional.of(b));
         var d = new DriverEntity("A","B","+216");
         d.setLicenseExpiry(Instant.now().plusSeconds(3600));
         d.setCertified(true);
-        when(drivers.findById(eq(driverId))).thenReturn(Optional.of(d));
+        when(drivers.findLockedById(eq(driverId))).thenReturn(Optional.of(d));
         when(assignments.overlaps(eq(driverId), any(), any(), eq(bookingId))).thenReturn(0L);
         when(assignments.findByBookingId(eq(bookingId))).thenReturn(null);
         when(assignments.save(any())).thenAnswer(inv -> inv.getArgument(0));

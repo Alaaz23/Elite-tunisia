@@ -19,6 +19,8 @@ const taxonomy = () => import('./features/brands/catalogue-taxonomy.component').
 const adminTaxonomy = () => import('./features/admin/admin-taxonomy.component').then((module) => module.AdminTaxonomyComponent);
 const adminVehicles = () => import('./features/admin/admin-vehicles.component').then((module) => module.AdminVehiclesComponent);
 const adminInvoices = () => import('./features/admin/admin-invoices.component').then((module) => module.AdminInvoicesComponent);
+const adminDrivers = () => import('./features/admin/admin-drivers.component').then((module) => module.AdminDriversComponent);
+const adminCustomers = () => import('./features/admin/admin-customers.component').then((module) => module.AdminCustomersComponent);
 const forbidden = () => import('./features/customer/forbidden.component').then((module) => module.ForbiddenComponent);
 const bookingsList = () => import('./features/bookings/bookings-list.component').then((module) => module.BookingsListComponent);
 const bookingDetail = () => import('./features/bookings/booking-detail.component').then((module) => module.BookingDetailComponent);
@@ -84,8 +86,8 @@ export const routes: Routes = [
 			{ path: 'categories', loadComponent: adminTaxonomy, data: { catalogueType: 'categories' } },
 			{ path: 'bookings', loadComponent: bookingsList, data: { adminBookings: true } },
 			{ path: 'bookings/:id', loadComponent: bookingDetail, data: { adminBookings: true } },
-			{ path: 'customers', loadComponent: page, data: { title: 'Clients', description: 'La gestion des clients reste à développer.' } },
-			{ path: 'drivers', loadComponent: page, data: { title: 'Chauffeurs', description: 'La gestion des chauffeurs reste à développer.' } },
+			{ path: 'customers', loadComponent: adminCustomers, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN', 'MANAGER'] } },
+			{ path: 'drivers', loadComponent: adminDrivers, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN', 'MANAGER', 'AGENT'] } },
 			{ path: 'quotes', loadComponent: quotesList, data: { adminQuotes: true } },
 			{ path: 'quotes/new', loadComponent: quoteEditor, canActivate: [roleGuard], data: { adminQuotes: true, roles: ['SUPER_ADMIN','MANAGER','AGENT'] } },
 			{ path: 'quotes/:id', loadComponent: quoteDetail, data: { adminQuotes: true } },
