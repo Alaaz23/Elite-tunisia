@@ -1,5 +1,8 @@
-import { APIRequestContext, expect, Page, test } from '@playwright/test';
+import { APIRequestContext, Page } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { readFileSync } from 'node:fs';
 import { Temporal } from '@js-temporal/polyfill';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
 
 test.describe.serial('Booking engine with real API', () => {
   const suffix = Date.now().toString();
@@ -13,7 +16,7 @@ test.describe.serial('Booking engine with real API', () => {
   let vehicleId = ''; let bookingId = ''; let reference = '';
 
   test.beforeAll(async ({ request }) => {
-    const admin = await apiLogin(request, 'superadmin@example.test', 'Test-Admin-123!');
+    const admin = await apiLogin(request, ADMIN_EMAIL, ADMIN_PASSWORD);
     const brand = await mutate(request, admin, 'POST', '/api/admin/brands', { name: `Booking Brand ${suffix}`, description: 'E2E booking brand', active: true });
     const category = await mutate(request, admin, 'POST', '/api/admin/categories', { name: `Booking Category ${suffix}`, description: 'E2E booking category', active: true });
     const vehicle = await mutate(request, admin, 'POST', '/api/admin/vehicles', {
@@ -116,7 +119,7 @@ test.describe.serial('Booking engine with real API', () => {
       vehicleId, startDateTime: start.toInstant().toString(), endDateTime: end.toInstant().toString(),
       pickupLocation: 'Tunis', dropoffLocation: 'Tunis',
     });
-    const adminToken = await apiLogin(request, 'superadmin@example.test', 'Test-Admin-123!');
+    const adminToken = await apiLogin(request, ADMIN_EMAIL, ADMIN_PASSWORD);
     await mutate(request, adminToken, 'PATCH', `/api/admin/bookings/${booking.id}/confirm`, {});
 
     await login(page, agentEmail, password, true);
@@ -155,7 +158,36 @@ test.describe.serial('Booking engine with real API', () => {
     const issued = await invoices.json() as Array<{ totalAmount: number; reference: string }>;
     expect(issued.some((invoice) => invoice.totalAmount === 35.5 && invoice.reference.startsWith('INV-'))).toBe(true);
   });
+
+  test('the return-charge invoice can be opened and downloaded as a PDF by the customer and by the back-office', async ({ page, request }) => {
+    const ownerToken = await apiLogin(request, customerEmail, password);
+    const invoices = await request.get('/api/invoices', { headers: { Authorization: `Bearer ${ownerToken}` } });
+    const issued = await invoices.json() as Array<{ id: string; totalAmount: number; reference: string }>;
+    const charge = issued.find((invoice) => invoice.totalAmount === 35.5);
+    expect(charge, 'la facture des frais de restitution doit exister').toBeDefined();
+
+    await login(page, customerEmail, password);
+    await page.goto('/customer/invoices');
+    const customerRow = page.locator('li', { hasText: charge!.reference });
+    await expect(customerRow).toBeVisible();
+    await expectPdfDownload(page, customerRow.getByRole('button', { name: 'Télécharger' }));
+
+    await page.getByRole('button', { name: 'Déconnexion' }).click();
+    await login(page, ADMIN_EMAIL, ADMIN_PASSWORD, true);
+    await page.goto('/admin/invoices');
+    const adminRow = page.locator('tr', { hasText: charge!.reference });
+    await expect(adminRow).toBeVisible();
+    await expect(adminRow).toContainText('35.5');
+    await expectPdfDownload(page, adminRow.getByRole('button', { name: 'PDF' }));
+  });
 });
+
+async function expectPdfDownload(page: Page, trigger: import('@playwright/test').Locator) {
+  const [download] = await Promise.all([page.waitForEvent('download'), trigger.click()]);
+  expect(download.suggestedFilename().toLowerCase()).toMatch(/\.pdf$/);
+  const file = await download.path();
+  expect(readFileSync(file!).subarray(0, 4).toString()).toBe('%PDF');
+}
 
 async function login(page: Page, email: string, password: string, admin = false) {
   await page.goto(admin ? '/auth/admin-login' : '/auth/login');

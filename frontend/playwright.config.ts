@@ -14,5 +14,7 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
   },
   expect: { timeout: 8_000 },
-  timeout: 30_000,
+  // Mesuré : les parcours multi-utilisateurs réussissent en 13 à 28 s sous `ng serve` (API < 0,7 s, le temps vient du
+  // chargement des chunks et du rendu) ; 30 s était trop proche de la durée réelle. Les attentes `expect` restent à 8 s.
+  timeout: 60_000,
 });

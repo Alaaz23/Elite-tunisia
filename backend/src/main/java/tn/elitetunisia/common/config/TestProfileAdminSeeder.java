@@ -69,7 +69,8 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
                 {"quotes:read", "Consulter les devis"}, {"quotes:create", "Créer les devis"}, {"quotes:manage", "Gérer les devis"},
                 {"quotes:send", "Envoyer les devis"}, {"quotes:accept", "Accepter ses devis"}, {"quotes:reject", "Refuser ses devis"},
                 {"payments:create", "Payer ses devis acceptés"}, {"invoices:read", "Consulter ses factures"},
-                {"drivers:manage", "Gérer les chauffeurs"}, {"customers:read", "Consulter les clients"}
+                {"drivers:manage", "Gérer les chauffeurs"}, {"customers:read", "Consulter les clients"},
+                {"services:read", "Consulter le catalogue de services"}, {"services:manage", "Créer et gérer les services"}
         };
         for (String[] permission : permissionNames) {
             permissions.findById(permission[0]).orElseGet(() -> permissions.save(new PermissionEntity(permission[0], permission[1])));
@@ -91,11 +92,11 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
             if (roleKey.equals("MANAGER")) {
                 staffRole.addPermission(permissions.findById("customers:read").orElseThrow());
             }
-            for (String permission : java.util.List.of("vehicles:read", "brands:read", "categories:read")) {
+            for (String permission : java.util.List.of("vehicles:read", "brands:read", "categories:read", "services:read")) {
                 staffRole.addPermission(permissions.findById(permission).orElseThrow());
             }
             if (roleKey.equals("MANAGER")) {
-                for (String permission : java.util.List.of("vehicles:manage", "brands:manage", "categories:manage")) {
+                for (String permission : java.util.List.of("vehicles:manage", "brands:manage", "categories:manage", "services:manage")) {
                     staffRole.addPermission(permissions.findById(permission).orElseThrow());
                 }
             }

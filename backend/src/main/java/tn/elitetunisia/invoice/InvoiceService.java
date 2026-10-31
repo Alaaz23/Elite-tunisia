@@ -28,8 +28,8 @@ public class InvoiceService {
 
     @Transactional
     public InvoiceEntity createFromQuote(UUID quoteId, UUID actorUserId, Integer dueDays) {
-        QuoteEntity quote = quotes.findById(quoteId).orElseThrow(() -> new RuntimeException("QUOTE_NOT_FOUND"));
-        if (quote.getStatus() != tn.elitetunisia.quote.QuoteStatus.ACCEPTED) throw new RuntimeException("QUOTE_NOT_ACCEPTED");
+        QuoteEntity quote = quotes.findById(quoteId).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("QUOTE_NOT_FOUND"));
+        if (quote.getStatus() != tn.elitetunisia.quote.QuoteStatus.ACCEPTED) throw tn.elitetunisia.common.exception.DomainException.conflict("QUOTE_NOT_ACCEPTED");
 
         BookingEntity booking = quote.getBooking();
 
@@ -77,17 +77,22 @@ public class InvoiceService {
     }
 
     public java.util.List<InvoiceEntity> listForCustomer(UUID customerId) { return invoices.findByCustomerId(customerId); }
-    public InvoiceEntity getForCustomer(UUID id, UUID customerId) { var inv = invoices.findById(id).orElseThrow(() -> new RuntimeException("INVOICE_NOT_FOUND")); if (!inv.getCustomerId().equals(customerId)) throw new RuntimeException("ACCESS_DENIED"); return inv; }
+    public InvoiceEntity getForCustomer(UUID id, UUID customerId) {
+        // Même réponse 404 pour « inconnue » et « appartient à un autre client » : aucun indice sur l'existence.
+        var inv = invoices.findWithLinesById(id).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("INVOICE_NOT_FOUND"));
+        if (!inv.getCustomerId().equals(customerId)) throw tn.elitetunisia.common.exception.DomainException.notFound("INVOICE_NOT_FOUND");
+        return inv;
+    }
     public java.util.List<InvoiceEntity> adminList() { return invoices.findAll(); }
-    public InvoiceEntity adminGet(UUID id) { return invoices.findById(id).orElseThrow(() -> new RuntimeException("INVOICE_NOT_FOUND")); }
+    public InvoiceEntity adminGet(UUID id) { return invoices.findWithLinesById(id).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("INVOICE_NOT_FOUND")); }
 
     @Transactional
     public void attachPayment(UUID invoiceId, UUID paymentId) {
-        var inv = invoices.findById(invoiceId).orElseThrow(() -> new RuntimeException("INVOICE_NOT_FOUND"));
-        var pay = payments.findById(paymentId).orElseThrow(() -> new RuntimeException("PAYMENT_NOT_FOUND"));
+        var inv = invoices.findById(invoiceId).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("INVOICE_NOT_FOUND"));
+        var pay = payments.findById(paymentId).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("PAYMENT_NOT_FOUND"));
         // only attach captured payments
         if (pay.getStatus() != tn.elitetunisia.payment.PaymentStatus.CAPTURED) {
-            throw new RuntimeException("PAYMENT_NOT_CAPTURED");
+            throw tn.elitetunisia.common.exception.DomainException.conflict("PAYMENT_NOT_CAPTURED");
         }
         // create join via native insert to invoice_payments if not exists
         // Postgres supports "on conflict do nothing"; fallback to safe check for H2 or other DBs

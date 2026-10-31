@@ -15,14 +15,14 @@ public class AdminDriverController {
     public AdminDriverController(DriverService service) { this.service = service; }
 
     @PostMapping
-    public ResponseEntity<DriverEntity> create(@jakarta.validation.Valid @RequestBody CreateDriverRequest req) {
+    public ResponseEntity<DriverResponse> create(@jakarta.validation.Valid @RequestBody CreateDriverRequest req) {
         var d = service.create(req.firstName, req.lastName, req.phone, req.licenseNumber,
                 req.licenseExpiry, Boolean.TRUE.equals(req.certified), req.notes);
-        return ResponseEntity.ok(d);
+        return ResponseEntity.ok(DriverResponse.from(d));
     }
 
     @GetMapping
-    public ResponseEntity<List<DriverEntity>> list() { return ResponseEntity.ok(service.listAvailable()); }
+    public ResponseEntity<List<DriverResponse>> list() { return ResponseEntity.ok(service.listAvailable().stream().map(DriverResponse::from).toList()); }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deactivate(@PathVariable UUID id) { service.deactivate(id); return ResponseEntity.noContent().build(); }

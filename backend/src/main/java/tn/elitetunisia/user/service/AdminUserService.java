@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ import tn.elitetunisia.auth.repository.RoleRepository;
 import tn.elitetunisia.auth.repository.RefreshTokenRepository;
 import tn.elitetunisia.auth.repository.UserRepository;
 import tn.elitetunisia.common.audit.AuditService;
+import tn.elitetunisia.common.exception.DomainException;
 import tn.elitetunisia.common.exception.EmailAlreadyRegisteredException;
 import tn.elitetunisia.employee.EmployeeEntity;
 import tn.elitetunisia.employee.EmployeeRepository;
@@ -26,6 +28,7 @@ import tn.elitetunisia.user.dto.UserSummary;
 
 @Service
 public class AdminUserService {
+    private static final String SUPER_ADMIN = "SUPER_ADMIN";
     private static final Set<String> INTERNAL_ROLES = Set.of("SUPER_ADMIN", "MANAGER", "AGENT", "CONCIERGE", "ACCOUNTANT");
     private final UserRepository users;
     private final RoleRepository roles;
@@ -74,12 +77,14 @@ public class AdminUserService {
 
     @Transactional
     public UserSummary update(UUID id, UpdateEmployeeRequest request, UUID actorId, String ipAddress) {
+        roles.lockSuperAdminRole();
         UserEntity user = users.findById(id).orElseThrow(UserNotFoundException::new);
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         if (!user.getEmail().equalsIgnoreCase(email) && users.existsByEmailIgnoreCase(email)) {
             throw new EmailAlreadyRegisteredException();
         }
         RoleEntity role = internalRole(request.role());
+        rejectIfLastSuperAdminLost(id, SUPER_ADMIN.equals(role.getRoleKey()));
         boolean roleChanged = !user.getRoleKeys().contains(role.getRoleKey()) || user.getRoleKeys().size() != 1;
         user.setEmail(email);
         if (roleChanged) {
@@ -95,7 +100,9 @@ public class AdminUserService {
 
     @Transactional
     public UserSummary updateStatus(UUID id, UpdateUserStatusRequest request, UUID actorId, String ipAddress) {
+        roles.lockSuperAdminRole();
         UserEntity user = users.findById(id).orElseThrow(UserNotFoundException::new);
+        rejectIfLastSuperAdminLost(id, request.enabled());
         boolean wasEnabled = user.isEnabled();
         user.setEnabled(request.enabled());
         if (wasEnabled && !request.enabled()) {
@@ -105,6 +112,13 @@ public class AdminUserService {
             audit.recordAudit(actorId, "USER_UPDATED", "USER", id, ipAddress, "SUCCESS");
         }
         return accounts.findById(id);
+    }
+
+    /** L'appelant détient le verrou du rôle SUPER_ADMIN : le décompte reste exact face aux opérations concurrentes. */
+    private void rejectIfLastSuperAdminLost(UUID targetId, boolean staysActiveSuperAdmin) {
+        if (!staysActiveSuperAdmin && users.isActiveSuperAdmin(targetId) && users.countActiveSuperAdmins() <= 1) {
+            throw new DomainException("LAST_SUPER_ADMIN", HttpStatus.CONFLICT);
+        }
     }
 
     private RoleEntity internalRole(String roleKey) {

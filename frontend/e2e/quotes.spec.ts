@@ -1,11 +1,13 @@
-import { APIRequestContext, expect, Page, test } from '@playwright/test';
+import { APIRequestContext, Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { Temporal } from '@js-temporal/polyfill';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
 test.describe.serial('Quotes with PostgreSQL API',()=>{
   const suffix=Date.now().toString();const password='Quote-Strong-123!';const ownerEmail=`quote-owner-${suffix}@example.test`;const otherEmail=`quote-other-${suffix}@example.test`;const agentEmail=`quote-agent-${suffix}@example.test`;
   const start=Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:60}).with({hour:10,minute:0,second:0,millisecond:0,microsecond:0,nanosecond:0});const end=start.add({hours:25});const valid=Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:10}).with({hour:16,minute:0,second:0,millisecond:0,microsecond:0,nanosecond:0});
   let vehicleId='';let ownerToken='';let otherToken='';let adminToken='';let bookingId='';let quoteId='';let quoteReference='';
   test.beforeAll(async({request})=>{
-    adminToken=await apiLogin(request,'superadmin@example.test','Test-Admin-123!');
+    adminToken=await apiLogin(request,ADMIN_EMAIL,ADMIN_PASSWORD);
     const brand=await mutate(request,adminToken,'POST','/api/admin/brands',{name:`Quote Brand ${suffix}`,description:'E2E brand',active:true});const category=await mutate(request,adminToken,'POST','/api/admin/categories',{name:`Quote Category ${suffix}`,description:'E2E category',active:true});
     const vehicle=await mutate(request,adminToken,'POST','/api/admin/vehicles',{brandId:brand.id,categoryId:category.id,model:`Quote Touring ${suffix}`,year:2025,description:'E2E proposal vehicle',pricePerDay:500,pricePerWeek:3000,priceWithDriver:700,currency:'TND',passengers:5,doors:4,transmission:'AUTOMATIC',fuel:'PETROL',withDriverAvailable:true,status:'AVAILABLE',features:[],images:[]});vehicleId=vehicle.id as string;
     await mutate(request,adminToken,'POST','/api/admin/users',{firstName:'Quote',lastName:'Agent',email:agentEmail,phone:'+216 20 123 456',password,role:'AGENT',jobTitle:'Agent'});

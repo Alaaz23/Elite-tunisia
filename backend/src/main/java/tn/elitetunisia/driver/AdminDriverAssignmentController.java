@@ -21,7 +21,7 @@ public class AdminDriverAssignmentController {
     }
 
     @PostMapping("/{bookingId}/driver")
-    public ResponseEntity<?> assign(@PathVariable UUID bookingId, @RequestBody AssignDriverRequest req) {
+    public ResponseEntity<?> assign(@PathVariable UUID bookingId, @jakarta.validation.Valid @RequestBody AssignDriverRequest req) {
         boolean requireCertified = req.requireCertified != null ? req.requireCertified : false;
         var a = service.assignDriver(bookingId, req.driverId, requireCertified);
         return ResponseEntity.ok(new AssignResponse(a.getId(), a.getDriverId(), a.getBookingId()));
@@ -33,6 +33,6 @@ public class AdminDriverAssignmentController {
         return ResponseEntity.noContent().build();
     }
 
-    public static class AssignDriverRequest { public UUID driverId; public Boolean requireCertified; }
+    public static class AssignDriverRequest { @jakarta.validation.constraints.NotNull public UUID driverId; public Boolean requireCertified; }
     public record AssignResponse(UUID id, UUID driverId, UUID bookingId) {}
 }

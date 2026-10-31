@@ -32,8 +32,16 @@ public class AdminDriverControllerMockMvcTest {
     @Test
     @WithMockUser(authorities = {"drivers:manage","admin:access"})
     public void createAllowedWithAuthority() throws Exception {
+        var saved = new DriverEntity("A", "B", "+21612345678");
+        saved.setLicenseNumber("TN-TEST-123");
+        org.mockito.Mockito.when(driverService.create(org.mockito.ArgumentMatchers.eq("A"), org.mockito.ArgumentMatchers.eq("B"),
+                org.mockito.ArgumentMatchers.eq("+21612345678"), org.mockito.ArgumentMatchers.eq("TN-TEST-123"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.isNull())).thenReturn(saved);
         mvc.perform(post("/api/admin/drivers").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+21612345678\",\"licenseNumber\":\"TN-TEST-123\"}"))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.licenseNumber").value("TN-TEST-123"))
+            .andExpect(jsonPath("$.active").value(true))
+            .andExpect(jsonPath("$.createdAt").exists());
     }
 
     @Test

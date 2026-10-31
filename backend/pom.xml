@@ -30,6 +30,10 @@
 		<java.version>21</java.version>
 		<springdoc.version>3.0.0</springdoc.version>
 		<jjwt.version>0.12.6</jjwt.version>
+		<!-- Surcharges de sécurité du BOM Spring Boot 4.1.1 (avis GHSA Jackson et Tomcat) ; à retirer quand Boot les embarque. -->
+		<tomcat.version>11.0.25</tomcat.version>
+		<jackson-bom.version>3.1.7</jackson-bom.version>
+		<jackson-2-bom.version>2.21.7</jackson-2-bom.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -152,6 +156,28 @@
 		</resources>
 
 		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>3.5.0</version>
+				<executions>
+					<execution>
+						<id>enforce-java-21</id>
+						<phase>validate</phase>
+						<goals>
+							<goal>enforce</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<requireJavaVersion>
+									<version>[21,)</version>
+									<message>Java 21 minimum requis pour exécuter Maven. Définissez JAVA_HOME sur un JDK 21 (voir docs/start-local.md).</message>
+								</requireJavaVersion>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>

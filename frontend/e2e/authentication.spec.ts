@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
 
 test('client registers, reaches profile, is refused admin and logs out', async ({ page }) => {
   const email = `client-${Date.now()}@example.test`;
@@ -36,8 +37,8 @@ test('super admin creates, changes role, disables and blocks an agent login', as
   const password = 'Agent-Strong-123!';
 
   await page.goto('/auth/admin-login');
-  await page.getByLabel('Adresse e-mail').fill('superadmin@example.test');
-  await page.getByLabel('Mot de passe').fill('Test-Admin-123!');
+  await page.getByLabel('Adresse e-mail').fill(ADMIN_EMAIL);
+  await page.getByLabel('Mot de passe').fill(ADMIN_PASSWORD);
   await page.getByRole('button', { name: /Se connecter/ }).click();
   await expect(page).toHaveURL(/\/admin$/);
   await page.getByRole('link', { name: 'Utilisateurs' }).click();

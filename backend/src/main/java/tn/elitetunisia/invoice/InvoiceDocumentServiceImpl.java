@@ -18,7 +18,7 @@ public class InvoiceDocumentServiceImpl implements InvoiceDocumentService {
 
     @Override
     public byte[] generatePdf(UUID invoiceId) {
-        var inv = invoices.findById(invoiceId).orElseThrow(() -> new RuntimeException("INVOICE_NOT_FOUND"));
+        var inv = invoices.findWithLinesById(invoiceId).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("INVOICE_NOT_FOUND"));
         return generatePdfFromEntity(inv);
     }
 

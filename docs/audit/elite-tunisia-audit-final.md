@@ -56,6 +56,8 @@ Le projet peut être lancé localement en mode recette avec Spring Boot sur H2 e
 
 ## PostgreSQL et migrations
 
+> Mise à jour de l'étape 6A (2026-10-28) : migrations V1→V18, scénarios avec données préexistantes, E2E 18/18 sur PostgreSQL isolé, audit des permissions et inventaire des tables sans API sont détaillés dans [../postgres-stabilization-report.md](../postgres-stabilization-report.md). Les paragraphes suivants décrivent la validation de l'étape précédente (V1→V16) et restent exacts pour cette portée.
+
 ### Environnement isolé (exécuté)
 
 - Docker n'est pas disponible. PostgreSQL 18 est installé localement ; ses binaires (`initdb`, `postgres`, `psql`) ont servi, en lecture seule, à créer un cluster **distinct** : répertoire de données dédié sous `%LOCALAPPDATA%\EliteTunisiaTools\pg-test-cluster\data`, écoute `127.0.0.1:15432` uniquement, authentification SCRAM, mot de passe aléatoire hors dépôt. Version confirmée par le serveur : **PostgreSQL 18.3**, répertoire de données et base `et_test_db` vérifiés avant toute migration (0 table).

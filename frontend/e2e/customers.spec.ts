@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
 
 test('manager can search the customer directory by registered email', async ({ page }) => {
   const email = `directory-${Date.now()}@example.test`;
@@ -17,8 +18,8 @@ test('manager can search the customer directory by registered email', async ({ p
   await page.getByRole('button', { name: 'Déconnexion' }).click();
   await expect(page).toHaveURL('/');
   await page.goto('/auth/admin-login');
-  await page.getByLabel('Adresse e-mail').fill('superadmin@example.test');
-  await page.getByLabel('Mot de passe').fill('Test-Admin-123!');
+  await page.getByLabel('Adresse e-mail').fill(ADMIN_EMAIL);
+  await page.getByLabel('Mot de passe').fill(ADMIN_PASSWORD);
   await page.getByRole('button', { name: /Se connecter/ }).click();
   await expect(page).toHaveURL(/\/admin$/);
 

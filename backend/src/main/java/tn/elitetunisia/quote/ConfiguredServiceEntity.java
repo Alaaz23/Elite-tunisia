@@ -15,4 +15,8 @@ public class ConfiguredServiceEntity {
         id = UUID.randomUUID(); this.name = name; this.description = description; this.price = price; this.currency = currency; active = true;
     }
     public UUID getId() { return id; } public String getName() { return name; } public BigDecimal getPrice() { return price; } public String getCurrency() { return currency; } public boolean isActive() { return active; }
+    public String getDescription() { return description; }
+    /** La devise n'est volontairement pas modifiable : les devis existants référencent le service avec son tarif d'origine. */
+    public void updateDetails(String name, String description, BigDecimal price) { this.name = name; this.description = description; this.price = price; }
+    public void setActive(boolean active) { this.active = active; }
 }

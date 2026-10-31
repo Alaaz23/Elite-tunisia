@@ -20,6 +20,7 @@ const adminTaxonomy = () => import('./features/admin/admin-taxonomy.component').
 const adminVehicles = () => import('./features/admin/admin-vehicles.component').then((module) => module.AdminVehiclesComponent);
 const adminInvoices = () => import('./features/admin/admin-invoices.component').then((module) => module.AdminInvoicesComponent);
 const adminDrivers = () => import('./features/admin/admin-drivers.component').then((module) => module.AdminDriversComponent);
+const adminServices = () => import('./features/admin/admin-services.component').then((module) => module.AdminServicesComponent);
 const adminCustomers = () => import('./features/admin/admin-customers.component').then((module) => module.AdminCustomersComponent);
 const forbidden = () => import('./features/customer/forbidden.component').then((module) => module.ForbiddenComponent);
 const bookingsList = () => import('./features/bookings/bookings-list.component').then((module) => module.BookingsListComponent);
@@ -93,7 +94,7 @@ export const routes: Routes = [
 			{ path: 'quotes/:id', loadComponent: quoteDetail, data: { adminQuotes: true } },
 			{ path: 'invoices', loadComponent: adminInvoices, data: { title: 'Factures' } },
 			{ path: 'payments', loadComponent: page, data: { title: 'Paiements', description: 'Aucun fournisseur de paiement n’est configuré.' } },
-			{ path: 'services', loadComponent: page, data: { title: 'Services', description: 'Le CRUD services reste à développer.' } },
+			{ path: 'services', loadComponent: adminServices },
 			{ path: 'partners', loadComponent: page, data: { title: 'Partenaires', description: 'La gestion des partenaires reste à développer.' } },
 			{ path: 'users', loadComponent: adminUsers, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN'] } },
 			{ path: 'reports', loadComponent: page, data: { title: 'Rapports', description: 'Les rapports métier restent à développer.' } },

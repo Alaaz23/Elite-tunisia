@@ -66,7 +66,10 @@ public class SecurityConfig {
         return http
             .csrf(csrf -> csrf
                 .csrfTokenRepository(csrfTokens)
-                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+                .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                // The API is stateless: the default strategy would delete the XSRF cookie on every JWT-authenticated
+                // response, so a concurrent request could erase the cookie between the token fetch and a mutation (403).
+                .sessionAuthenticationStrategy((authentication, request, response) -> { }))
                 .cors(cors -> { })
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
@@ -78,6 +81,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/vehicles", "/api/vehicles/**", "/api/brands", "/api/brands/**",
                     "/api/categories", "/api/categories/**", "/api/files/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .requestMatchers("/api/admin/transfers", "/api/admin/transfers/**").hasAllAuthorities("admin:access", "bookings:manage")
+                .requestMatchers(HttpMethod.GET, "/api/admin/services", "/api/admin/services/**").hasAllAuthorities("admin:access", "services:read")
+                .requestMatchers("/api/admin/services", "/api/admin/services/**").hasAllAuthorities("admin:access", "services:manage")
                 .requestMatchers("/api/admin/**").hasAuthority("admin:access")
                 .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
                         .anyRequest().authenticated())

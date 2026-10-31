@@ -19,7 +19,8 @@ public class TransferServiceTest2 {
     TransferRepository repo;
     BookingRepository bookings;
     BookingDriverAssignmentRepository assignments;
-    tn.elitetunisia.driver.DriverAssignmentService assignSvc;
+    tn.elitetunisia.driver.DriverRepository drivers;
+    tn.elitetunisia.common.audit.AuditService audit;
     TransferService svc;
 
     @BeforeEach
@@ -27,60 +28,59 @@ public class TransferServiceTest2 {
         repo = mock(TransferRepository.class);
         bookings = mock(BookingRepository.class);
         assignments = mock(BookingDriverAssignmentRepository.class);
-        assignSvc = mock(tn.elitetunisia.driver.DriverAssignmentService.class);
-        svc = new TransferService(repo, bookings, assignments, assignSvc);
+        drivers = mock(tn.elitetunisia.driver.DriverRepository.class);
+        audit = mock(tn.elitetunisia.common.audit.AuditService.class);
+        svc = new TransferService(repo, bookings, assignments, drivers, audit);
+    }
+
+    private BookingEntity booking(UUID bookingId, Instant start, Instant end) {
+        BookingEntity b = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(b));
+        when(b.getId()).thenReturn(bookingId);
+        when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.CONFIRMED);
+        when(b.getStartDateTime()).thenReturn(start); when(b.getEndDateTime()).thenReturn(end);
+        tn.elitetunisia.vehicle.VehicleEntity v = mock(tn.elitetunisia.vehicle.VehicleEntity.class);
+        when(v.getId()).thenReturn(UUID.randomUUID()); when(v.getPassengers()).thenReturn(5); when(b.getVehicle()).thenReturn(v);
+        return b;
+    }
+
+    private static TransferRequest request(UUID bookingId, Instant pickupAt, UUID driverId) {
+        return new TransferRequest(bookingId, pickupAt, "Aeroport", "Hotel", 2, driverId);
     }
 
     @Test
-    void createForBookingReusesAssignment() {
+    void createReusesAssignment() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
-        BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
-        when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.CONFIRMED);
         Instant start = Instant.now().plusSeconds(3600); Instant end = start.plusSeconds(3600);
-        when(b.getStartDateTime()).thenReturn(start); when(b.getEndDateTime()).thenReturn(end);
-        tn.elitetunisia.vehicle.VehicleEntity v = mock(tn.elitetunisia.vehicle.VehicleEntity.class);
-        when(v.getId()).thenReturn(UUID.randomUUID()); when(b.getVehicle()).thenReturn(v);
-
-        BookingDriverAssignmentEntity a = new BookingDriverAssignmentEntity(bookingId, driverId, start, end);
-        when(assignments.findByBookingId(bookingId)).thenReturn(a);
-
-        TransferEntity t = new TransferEntity(); t.setPickupAt(start.plusSeconds(600)); t.setPassengers(2);
-        when(repo.save(any())).thenAnswer(i -> i.getArgument(0));
-        var saved = svc.createForBooking(bookingId, t);
+        BookingEntity b = booking(bookingId, start, end);
+        when(drivers.findLockedById(driverId)).thenReturn(Optional.of(new tn.elitetunisia.driver.DriverEntity("A", "B", "+216")));
+        when(assignments.findByBookingId(bookingId)).thenReturn(new BookingDriverAssignmentEntity(bookingId, driverId, start, end));
+        when(repo.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+        var saved = svc.create(request(bookingId, start.plusSeconds(600), null), UUID.randomUUID(), null);
         assertEquals(driverId, saved.getDriverId());
-        assertEquals(v.getId(), saved.getVehicleId());
+        assertEquals(b.getVehicle().getId(), saved.getVehicleId());
     }
 
     @Test
-    void createForBookingFailsWhenOutsidePeriod() {
+    void createFailsWhenOutsidePeriod() {
         UUID bookingId = UUID.randomUUID();
-        BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
-        when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.CONFIRMED);
         Instant start = Instant.now().plusSeconds(3600); Instant end = start.plusSeconds(3600);
-        when(b.getStartDateTime()).thenReturn(start); when(b.getEndDateTime()).thenReturn(end);
-        tn.elitetunisia.vehicle.VehicleEntity v = mock(tn.elitetunisia.vehicle.VehicleEntity.class);
-        when(v.getId()).thenReturn(UUID.randomUUID()); when(b.getVehicle()).thenReturn(v);
-
-        TransferEntity t = new TransferEntity(); t.setPickupAt(start.minusSeconds(10));
-        assertThrows(RuntimeException.class, () -> svc.createForBooking(bookingId, t));
+        booking(bookingId, start, end);
+        var ex = assertThrows(tn.elitetunisia.common.exception.DomainException.class,
+                () -> svc.create(request(bookingId, start.minusSeconds(10), null), UUID.randomUUID(), null));
+        assertEquals("TRANSFER_OUTSIDE_BOOKING_PERIOD", ex.getCode());
     }
 
     @Test
-    void createForBookingFailsIfDriverBusy() {
+    void createFailsIfDriverBusy() {
         UUID bookingId = UUID.randomUUID(); UUID driverId = UUID.randomUUID();
-        BookingEntity b = mock(BookingEntity.class);
-        when(bookings.findById(bookingId)).thenReturn(Optional.of(b));
-        when(b.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.CONFIRMED);
         Instant start = Instant.now().plusSeconds(3600); Instant end = start.plusSeconds(3600);
-        when(b.getStartDateTime()).thenReturn(start); when(b.getEndDateTime()).thenReturn(end);
-        tn.elitetunisia.vehicle.VehicleEntity v = mock(tn.elitetunisia.vehicle.VehicleEntity.class);
-        when(v.getId()).thenReturn(UUID.randomUUID()); when(b.getVehicle()).thenReturn(v);
-
+        booking(bookingId, start, end);
         when(assignments.findByBookingId(bookingId)).thenReturn(null);
-        TransferEntity t = new TransferEntity(); t.setPickupAt(start.plusSeconds(10)); t.setDriverId(driverId);
+        when(drivers.findLockedById(driverId)).thenReturn(Optional.of(new tn.elitetunisia.driver.DriverEntity("A", "B", "+216")));
         when(assignments.overlaps(eq(driverId), any(), any(), eq(bookingId))).thenReturn(1L);
-        assertThrows(RuntimeException.class, () -> svc.createForBooking(bookingId, t));
+        var ex = assertThrows(tn.elitetunisia.common.exception.DomainException.class,
+                () -> svc.create(request(bookingId, start.plusSeconds(10), driverId), UUID.randomUUID(), null));
+        assertEquals("DRIVER_NOT_AVAILABLE", ex.getCode());
     }
 }

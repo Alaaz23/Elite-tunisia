@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
 
 test('public catalogue applies filters and opens a vehicle detail', async ({ page }) => {
   let filteredUrl = '';
@@ -49,8 +50,8 @@ test('super admin opens the fleet editor and submits a vehicle', async ({ page }
   const modelName = `Touring ${suffix}`;
 
   await page.goto('/auth/admin-login');
-  await page.getByLabel('Adresse e-mail').fill('superadmin@example.test');
-  await page.getByLabel('Mot de passe').fill('Test-Admin-123!');
+  await page.getByLabel('Adresse e-mail').fill(ADMIN_EMAIL);
+  await page.getByLabel('Mot de passe').fill(ADMIN_PASSWORD);
   await page.getByRole('button', { name: /Se connecter/ }).click();
   await expect(page).toHaveURL(/\/admin$/);
   await page.getByRole('link', { name: 'Marques', exact: true }).click();

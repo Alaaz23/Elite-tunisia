@@ -28,7 +28,7 @@ public class DriverService {
 
     public List<DriverEntity> listAvailable() { return repo.findByActiveTrue(); }
 
-    public DriverEntity get(UUID id) { return repo.findById(id).orElseThrow(() -> new RuntimeException("DRIVER_NOT_FOUND")); }
+    public DriverEntity get(UUID id) { return repo.findById(id).orElseThrow(() -> tn.elitetunisia.common.exception.DomainException.notFound("DRIVER_NOT_FOUND")); }
 
     @Transactional
     public void deactivate(UUID id) { var d = get(id); d.setActive(false); repo.save(d); }

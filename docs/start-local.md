@@ -29,6 +29,12 @@ Invoke-WebRequest 'http://127.0.0.1:8080/api/health' -UseBasicParsing
 
 Le démarrage standard (profil `dev`) exige explicitement `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` et `JWT_SECRET`. Ne pas choisir une instance PostgreSQL existante sans en confirmer l'identité et l'isolation. Le port 5432 de cette machine appartient à un processus PostgreSQL dont la base et le répertoire de données n'ont pas été identifiés ; il n'a pas été utilisé.
 
+Réglages d'exploitation notables :
+
+- Limitation des échecs de connexion (par e-mail + adresse IP, état en mémoire) : `app.security.login-throttle.max-failures` (défaut 5) et `app.security.login-throttle.window-seconds` (défaut 900). Au-delà, l'API répond 429 avec `Retry-After`. Valeurs de départ à valider (D-SEC1).
+- Profil `prod` : cookies `Secure`, Swagger et `/api-docs` désactivés, seule l'actuator `health` exposée ; `JWT_SECRET` (≥ 32 octets), `DATABASE_*` et `CORS_ALLOWED_ORIGINS` obligatoires. Derrière un proxy inverse, définir `server.forward-headers-strategy` pour que l'adresse IP du client soit correcte (audit et limitation de connexion).
+- État réel des fonctionnalités, bilan de sécurité et décisions en attente : [product-readiness-matrix.md](product-readiness-matrix.md).
+
 ## Frontend
 
 Dans un deuxième terminal PowerShell :
@@ -104,7 +110,7 @@ $env:PGPASSWORD = [IO.File]::ReadAllText("$root\pgpass.local")
 Remove-Item Env:\PGPASSWORD
 ```
 
-Validation complète (migrations V1→V16 sur base vide + tests d'intégration). Pour une exécution déterministe, recréer `et_test_db` avant chaque passage (`DROP DATABASE IF EXISTS et_test_db` puis `CREATE DATABASE et_test_db`, uniquement sur ce cluster) :
+Validation complète (migrations V1→V20 sur base vide + tests d'intégration + scénarios de migration avec données). Pour une exécution déterministe, recréer `et_test_db` avant chaque passage (`DROP DATABASE IF EXISTS et_test_db` puis `CREATE DATABASE et_test_db`, uniquement sur ce cluster). Les scénarios créent et suppriment eux-mêmes des bases `et_mig_*` ; leur rapport est écrit dans `backend\target\migration-scenarios-report.md` :
 
 ```powershell
 $root = Join-Path $env:LOCALAPPDATA 'EliteTunisiaTools\pg-test-cluster'
@@ -129,11 +135,43 @@ $env:DATABASE_PASSWORD = [IO.File]::ReadAllText("$root\pgpass.local"); $env:SERV
 .\mvnw.cmd -DskipTests spring-boot:run
 ```
 
-Sur cette base, aucun compte administrateur n'existe : le seeder `superadmin@example.test` n'est actif qu'avec le profil `test`/H2. Un premier compte staff doit être créé explicitement pour une recette manuelle.
+Sur cette base, aucun compte administrateur n'existe : le seeder `superadmin@example.test` n'est actif qu'avec le profil `test`/H2. Un premier compte staff doit être créé explicitement pour une recette manuelle ; `scripts\e2e-postgres.ps1` montre comment (hash bcrypt calculé par PostgreSQL, mot de passe aléatoire non journalisé). La procédure documentée est dans [first-admin.md](first-admin.md).
+
+E2E Playwright sur PostgreSQL isolé (crée la base jetable `et_e2e_db`, démarre backend et Angular, supprime la base ; les ports 8080 et 4200 doivent être libres) :
+
+```powershell
+.\scripts\e2e-postgres.ps1                          # suite complète
+.\scripts\e2e-postgres.ps1 -Spec bookings.spec.ts   # un fichier
+.\scripts\e2e-postgres.ps1 -Workers 1               # exécution séquentielle (diagnostic)
+```
+
+Les journaux (`backend.log`, `frontend.log`, `playwright-report.json`) sont écrits dans `%TEMP%\elite-e2e-pg\<horodatage>` ; en cas d'échec, les traces Playwright (`test-results`) y sont copiées. Les E2E bloquent toute requête hors `127.0.0.1`/`localhost` (`frontend/e2e/fixtures.ts`) pour ne pas dépendre de Google Fonts ou d'Unsplash. Le serveur de développement Angular est lent sous forte charge CPU : ne pas lancer la suite en parallèle d'autres tâches lourdes.
+
+Avant de pointer Flyway vers une base **existante**, lancer le pré-contrôle en lecture seule (aucune écriture, transaction annulée) et lire les lignes `PREFLIGHT|BLOCKER|…` / `PREFLIGHT|DATA_RISK|…` :
+
+```powershell
+psql -h <hote> -p <port> -U <utilisateur> -d <base> -f .\database\verification\preflight-before-flyway.sql
+```
+
+Détails, limites et résultats : [postgres-stabilization-report.md](postgres-stabilization-report.md). Sécurité des transferts, droits de facturation, catalogue de services et décisions métier en attente : [step-6b-security-and-modules.md](step-6b-security-and-modules.md).
 
 Arrêt : `Ctrl+C` dans le terminal de `postgres.exe` (ou `pg_ctl -D "$root\data" stop`). Suppression : retirer le répertoire `pg-test-cluster` quand il n'est plus utile.
 
 Résultats obtenus avec cette procédure : voir [elite-tunisia-audit-final.md](audit/elite-tunisia-audit-final.md).
+
+## Intégration continue (GitHub Actions)
+
+Workflow : `.github/workflows/ci.yml` (déclenché sur pull request et push vers `main`, permissions `contents: read`, aucun secret, actions épinglées par SHA). **Il n'a pas encore été exécuté sur GitHub** : seule sa syntaxe YAML a été validée localement, et ses commandes équivalentes ont été exécutées à la main.
+
+| Job | Runtime | Commande CI | Équivalent local (depuis `backend` / `frontend`) |
+|---|---|---|---|
+| `backend-h2` | Temurin 21 | `bash ./mvnw -B -ntp -DskipITs test` | `.\mvnw.cmd -DskipITs test` |
+| `backend-postgres` | Temurin 21, `postgres:18` via `docker run` éphémère (mot de passe aléatoire masqué, `127.0.0.1:15432`, base `et_test_db`, utilisateur `et_test`, sans volume) | `bash ./mvnw -B -ntp -Ppostgres-test verify` avec `ELITE_POSTGRES_TEST=true`, `DATABASE_*` | voir « PostgreSQL isolé sans Docker » |
+| `frontend` | Node 24.15.0 (conforme à `engines`) | `npm ci`, `npm test -- --watch=false`, `npm run build`, `npm audit --omit=dev`, `npm audit` | mêmes commandes |
+
+Notes : `backend/mvnw` n'est pas exécutable dans l'index git, d'où `bash ./mvnw`. Maven refuse désormais de s'exécuter sous Java < 21 (`maven-enforcer-plugin`, règle `requireJavaVersion`) : définir `JAVA_HOME` sur un JDK 21 avant tout `mvnw`. Aucun lint Angular n'est configuré. Contrôle des dépendances : `dependabot.yml` (maven, npm, actions, hebdomadaire) et le job `dependency-review` sur les pull requests (bloque les dépendances ajoutées avec une vulnérabilité haute ou critique ; il exige que le graphe de dépendances GitHub soit activé sur le dépôt, et il n'audite pas l'existant : celui-ci relève des alertes Dependabot). Un scan complet de l'arbre Maven existant reste manuel (OSV sur `dependency:list`). Les E2E Playwright ne sont pas dans la CI (le script `scripts/e2e-postgres.ps1` est spécifique à Windows). Les surcharges `tomcat.version` / `jackson-*-bom.version` du `pom.xml` sont temporaires. Les rapports Surefire/Failsafe sont conservés 14 jours comme artefacts de CI (`rapports-backend-h2`, `rapports-backend-postgres`), même en cas d'échec.
+
+Sauvegarde et restauration : voir [backup-restore.md](backup-restore.md).
 
 ## PostgreSQL isolé via Docker (non exécuté dans cet environnement)
 

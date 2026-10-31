@@ -29,6 +29,9 @@ public final class PostgresTestHelper {
         System.setProperty("spring.flyway.enabled", "true");
         System.setProperty("spring.jpa.hibernate.ddl-auto", "validate");
         System.setProperty("spring.jpa.defer-datasource-initialization", "false");
+        // Chaque contexte Spring mis en cache garde son pool : sans borne, la suite dépasse max_connections (100 par défaut).
+        System.setProperty("spring.datasource.hikari.maximum-pool-size", "5");
+        System.setProperty("spring.datasource.hikari.minimum-idle", "1");
         System.setProperty("spring.sql.init.mode", "never");
         // application-test.yml impose H2Dialect ; la validation Hibernate doit utiliser le dialecte PostgreSQL.
         System.setProperty("spring.jpa.properties.hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");

@@ -1,0 +1,6 @@
+-- État V3 : une réservation CONFIRMED et une IN_PROGRESS qui se chevauchent sur le même véhicule.
+INSERT INTO bookings (id, customer_id, vehicle_id, starts_at, ends_at, status, total_amount, currency) VALUES
+ ('aaaaaaaa-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555',
+  '2030-01-10T10:00:00Z', '2030-01-12T10:00:00Z', 'CONFIRMED', 240.000, 'TND'),
+ ('aaaaaaaa-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222', '55555555-5555-5555-5555-555555555555',
+  '2030-01-11T10:00:00Z', '2030-01-13T10:00:00Z', 'IN_PROGRESS', 240.000, 'TND');

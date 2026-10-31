@@ -25,8 +25,12 @@ public class InvoiceDocumentServiceTest {
     }
 
     @Test
-    public void missingInvoiceThrows() {
-        InvoiceDocumentServiceImpl svc = new InvoiceDocumentServiceImpl(null);
-        assertThrows(RuntimeException.class, () -> svc.generatePdf(UUID.randomUUID()));
+    public void missingInvoiceIsReportedAsNotFound() {
+        var repository = org.mockito.Mockito.mock(InvoiceRepository.class);
+        org.mockito.Mockito.when(repository.findWithLinesById(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
+        InvoiceDocumentServiceImpl svc = new InvoiceDocumentServiceImpl(repository);
+        var ex = assertThrows(tn.elitetunisia.common.exception.DomainException.class, () -> svc.generatePdf(UUID.randomUUID()));
+        assertEquals("INVOICE_NOT_FOUND", ex.getCode());
+        assertEquals(404, ex.getStatus().value());
     }
 }

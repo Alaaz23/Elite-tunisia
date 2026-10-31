@@ -14,3 +14,10 @@ app:
     secure-cookies: true
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+# La description de l'API (routes, schémas) ne doit pas être publique en production.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

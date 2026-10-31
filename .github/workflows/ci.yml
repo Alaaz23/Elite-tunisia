@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-h2:
+    name: Backend (H2, sans tests d'intégration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # mvnw n'est pas exécutable dans l'index git : on l'appelle via bash.
+      - run: bash ./mvnw -B -ntp -DskipITs test
+      - name: Conserver les rapports de tests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rapports-backend-h2
+          path: backend/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  backend-postgres:
+    name: Backend (PostgreSQL jetable, profil postgres-test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Le harnais n'accepte que 127.0.0.1:15432/et_test_db avec l'utilisateur et_test.
+      - name: Démarrer PostgreSQL 18 jetable
+        run: |
+          PGPW="$(openssl rand -hex 24)"
+          echo "::add-mask::$PGPW"
+          echo "PGPW=$PGPW" >> "$GITHUB_ENV"
+          docker run -d --name et-pg-ci \
+            -e POSTGRES_USER=et_test -e POSTGRES_PASSWORD="$PGPW" -e POSTGRES_DB=et_test_db \
+            -p 127.0.0.1:15432:5432 postgres:18
+          # Pendant l'initialisation, l'image n'écoute que sur le socket Unix d'un serveur temporaire ;
+          # seule une vraie requête via TCP (-h 127.0.0.1) prouve que le serveur définitif accepte les connexions.
+          for i in $(seq 1 60); do
+            if docker exec -e PGPASSWORD="$PGPW" et-pg-ci psql -h 127.0.0.1 -U et_test -d et_test_db -tAc 'select 1' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs et-pg-ci >&2 || true
+          echo "PostgreSQL n'a pas démarré" >&2
+          exit 1
+      - name: Tests PostgreSQL (surefire + failsafe)
+        env:
+          ELITE_POSTGRES_TEST: 'true'
+          DATABASE_URL: jdbc:postgresql://127.0.0.1:15432/et_test_db
+          DATABASE_USERNAME: et_test
+          DATABASE_PASSWORD: ${{ env.PGPW }}
+        run: bash ./mvnw -B -ntp -Ppostgres-test verify
+      - name: Conserver les rapports de tests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rapports-backend-postgres
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Arrêter PostgreSQL
+        if: always()
+        run: docker rm -f et-pg-ci
+
+  frontend:
+    name: Frontend (tests, build, audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.15.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --watch=false
+      - run: npm run build
+      - name: Audit npm (production)
+        run: npm audit --omit=dev
+      - name: Audit npm (complet, dev/test inclus)
+        run: npm audit
+
+  dependency-review:
+    name: Revue des dépendances (pull requests)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Bloque les PR qui ajoutent une dépendance Maven ou npm avec une vulnérabilité connue (haute ou critique).
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high

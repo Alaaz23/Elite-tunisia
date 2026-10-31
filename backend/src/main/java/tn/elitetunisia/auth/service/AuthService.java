@@ -43,14 +43,16 @@ public class AuthService {
     private final RoleRepository roles;
     private final CustomerRepository customers;
     private final AuditService audit;
+    private final LoginThrottle throttle;
 
     public AuthService(UserRepository users, RefreshTokenRepository refreshTokens, PasswordEncoder passwordEncoder,
             RoleRepository roles, CustomerRepository customers, AuthenticationManager authenticationManager, TokenService tokens,
-            AuditService audit, @Value("${app.security.jwt.refresh-token-days}") long refreshTokenDays) {
+            AuditService audit, LoginThrottle throttle, @Value("${app.security.jwt.refresh-token-days}") long refreshTokenDays) {
         this.users = users;
         this.roles = roles;
         this.customers = customers;
         this.audit = audit;
+        this.throttle = throttle;
         this.refreshTokens = refreshTokens;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
@@ -75,12 +77,16 @@ public class AuthService {
     @Transactional(noRollbackFor = AuthenticationException.class)
     public LoginResult login(LoginRequest request, String ipAddress) {
         String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
+        String throttleKey = LoginThrottle.key(email, ipAddress);
+        throttle.checkAllowed(throttleKey);
         try {
             authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, request.getPassword()));
         } catch (AuthenticationException exception) {
+            throttle.recordFailure(throttleKey);
             audit.recordAudit(null, "LOGIN", "SESSION", null, ipAddress, "FAILURE");
             throw exception;
         }
+        throttle.recordSuccess(throttleKey);
         UserEntity user = users.findByEmailIgnoreCase(email).orElseThrow();
         audit.recordAudit(user.getId(), "LOGIN", "SESSION", null, ipAddress, "SUCCESS");
         return issue(user, UUID.randomUUID());

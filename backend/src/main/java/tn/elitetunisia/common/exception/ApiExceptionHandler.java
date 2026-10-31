@@ -66,6 +66,45 @@ public class ApiExceptionHandler {
         response.setProperty("code", exception.getCode());
         return ResponseEntity.status(status).body(response);
     }
+    @ExceptionHandler(tn.elitetunisia.common.exception.DomainException.class)
+    ResponseEntity<ProblemDetail> handleDomain(DomainException exception) {
+        ProblemDetail response = problem(exception.getStatus(), DOMAIN_MESSAGES.getOrDefault(exception.getCode(), "La demande ne peut pas être traitée."));
+        response.setProperty("code", exception.getCode());
+        var builder = ResponseEntity.status(exception.getStatus());
+        if (exception instanceof TooManyLoginAttemptsException throttled) {
+            builder.header(org.springframework.http.HttpHeaders.RETRY_AFTER, String.valueOf(throttled.getRetryAfterSeconds()));
+        }
+        return builder.body(response);
+    }
+
+    private static final Map<String, String> DOMAIN_MESSAGES = Map.ofEntries(
+            Map.entry("BOOKING_NOT_FOUND", "Réservation introuvable."),
+            Map.entry("DRIVER_NOT_FOUND", "Chauffeur introuvable."),
+            Map.entry("ASSIGNMENT_NOT_FOUND", "Aucun chauffeur n'est affecté à cette réservation."),
+            Map.entry("INVOICE_NOT_FOUND", "Facture introuvable."),
+            Map.entry("QUOTE_NOT_FOUND", "Devis introuvable."),
+            Map.entry("QUOTE_NOT_ACCEPTED", "Le devis doit être accepté avant d'être facturé."),
+            Map.entry("PAYMENT_NOT_FOUND", "Paiement introuvable."),
+            Map.entry("PAYMENT_NOT_CAPTURED", "Seul un paiement encaissé peut être rattaché à une facture."),
+            Map.entry("LOGIN_THROTTLED", "Trop de tentatives de connexion. Réessayez dans quelques minutes."),
+            Map.entry("LAST_SUPER_ADMIN", "Le dernier super administrateur actif ne peut être ni désactivé ni rétrogradé."),
+            Map.entry("TRANSFER_NOT_FOUND", "Transfert introuvable."),
+            Map.entry("SERVICE_NOT_FOUND", "Service introuvable."),
+            Map.entry("BOOKING_STATUS_NO_DRIVER", "Un chauffeur ne peut être affecté qu'à une réservation en attente ou confirmée."),
+            Map.entry("DRIVER_INACTIVE", "Ce chauffeur est désactivé."),
+            Map.entry("DRIVER_LICENSE_EXPIRED", "Le permis de ce chauffeur est expiré."),
+            Map.entry("DRIVER_NOT_CERTIFIED", "Ce chauffeur n'est pas certifié."),
+            Map.entry("DRIVER_NOT_AVAILABLE", "Ce chauffeur n'est pas disponible sur cette période."),
+            Map.entry("TRANSFER_BOOKING_STATUS", "Un transfert ne peut être planifié que pour une réservation en attente ou confirmée."),
+            Map.entry("TRANSFER_OUTSIDE_BOOKING_PERIOD", "La prise en charge doit se situer pendant la période de la réservation."),
+            Map.entry("TRANSFER_TOO_MANY_PASSENGERS", "Le nombre de passagers dépasse la capacité du véhicule."),
+            Map.entry("TRANSFER_INVALID_STATUS_TRANSITION", "Ce transfert ne peut pas changer vers cet état."),
+            Map.entry("TRANSFER_NOT_EDITABLE", "Ce transfert n'est plus modifiable."),
+            Map.entry("TRANSFER_LEGACY_BOOKING_REQUIRED", "Ce transfert n'est rattaché à aucune réservation."),
+            Map.entry("TRANSFER_DRIVER_MISMATCH", "Cette réservation a déjà un autre chauffeur affecté."),
+            Map.entry("SERVICE_NAME_TAKEN", "Un service actif porte déjà ce nom dans cette devise."),
+            Map.entry("SERVICE_NAME_TOO_SHORT", "Le nom du service doit contenir au moins 2 caractères."));
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> handleValidation(MethodArgumentNotValidException exception) {
         ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "Les données envoyées sont invalides.");
@@ -121,6 +160,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler({org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
             org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+            org.springframework.web.multipart.MultipartException.class,
             org.springframework.web.bind.MissingServletRequestParameterException.class})
     ResponseEntity<ProblemDetail> handleInvalidParameter(Exception exception) {
         return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "Le paramètre ou fichier envoyé est invalide."));
