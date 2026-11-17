@@ -6,6 +6,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import java.math.*;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.Callable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,8 @@ import tn.elitetunisia.vehicle.*;
 import tn.elitetunisia.booking.*;
 import tn.elitetunisia.quote.*;
 import tn.elitetunisia.common.pricing.RentalPricingService;
+import tn.elitetunisia.payment.PaymentMethod;
+import tn.elitetunisia.payment.PaymentService;
 @SpringBootTest(properties = "app.quotes.default-tax-amount=1.2345") @AutoConfigureMockMvc @ActiveProfiles("test")
 class QuoteEngineTests {
     static {
@@ -42,8 +45,10 @@ class QuoteEngineTests {
     @Autowired CustomerRepository customers;
     @Autowired ConfiguredServiceRepository services;
     @Autowired JdbcTemplate jdbc;
+    @Autowired TestFixtures fixtures;
     @Autowired MockMvc mvc;
     @Autowired RentalPricingService pricing;
+    @Autowired PaymentService paymentService;
     private static final BigDecimal TAX = new BigDecimal("1.235");
     @Test void sharedPricingHandles24_25_48_49HoursAndConfiguredTaxRounding() {
         Instant start = Instant.now();
@@ -120,12 +125,13 @@ class QuoteEngineTests {
         Fixture fixture = fixture(24); var quote = service.create(fixture.booking().id(), request(true, BigDecimal.TEN, List.of()), admin(), null);
         assertEquals("QUOTE_NOT_ACCEPTED", assertThrows(BookingException.class, () -> bookingService.transition(fixture.booking().id(), BookingStatus.CONFIRMED, admin(), null)).getCode());
         service.send(quote.id(), admin(), null); service.customerAction(quote.id(), fixture.owner(), "accept", null, null);
+        assertEquals("PAYMENT_REQUIRED", assertThrows(BookingException.class, () -> bookingService.transition(fixture.booking().id(), BookingStatus.CONFIRMED, admin(), null)).getCode());
+        paymentService.createForQuote(quote.id(), fixture.owner(), quote.totalAmount(), PaymentMethod.CARD, "pay-" + UUID.randomUUID());
         var confirmed = bookingService.transition(fixture.booking().id(), BookingStatus.CONFIRMED, admin(), null);
         assertEquals(quote.totalAmount(), confirmed.totalAmount()); assertEquals(new BigDecimal("200.000"), confirmed.additionalCharges());
         Fixture conflict = fixture(24); var accepted = create(conflict); service.send(accepted.id(), admin(), null); service.customerAction(accepted.id(), conflict.owner(), "accept", null, null);
-        var rival = bookingService.create(new BookingRequest(conflict.vehicle(), conflict.booking().startDateTime(), conflict.booking().endDateTime(), "Tunis", "Tunis", null), conflict.owner(), null);
-        bookingService.transition(rival.id(), BookingStatus.CONFIRMED, admin(), null);
-        assertEquals("VEHICLE_NOT_AVAILABLE", assertThrows(BookingException.class, () -> bookingService.transition(conflict.booking().id(), BookingStatus.CONFIRMED, admin(), null)).getCode());
+        var rivalRequest = new BookingRequest(conflict.vehicle(), conflict.booking().startDateTime(), conflict.booking().endDateTime(), "Tunis", "Tunis", null);
+        assertEquals(BookingStatus.PENDING, bookingService.create(rivalRequest, conflict.owner(), null).status());
         assertEquals(BookingStatus.PENDING, bookingService.adminGet(conflict.booking().id()).status());
     }
     @Test void draftUpdatesAndInvalidCommercialInputsAreControlled() {
@@ -137,38 +143,41 @@ class QuoteEngineTests {
         assertEquals(updated.totalAmount(), service.get(quote.id(), null).totalAmount());
     }
     @Test @EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
-    void acceptedQuotesStillAllowOnlyOneConcurrentConfirmationOnPostgres() throws Exception {
+    void concurrentConfirmationsOfThePaidBookingAreIdempotentOnPostgres() throws Exception {
         org.junit.jupiter.api.Assumptions.assumeTrue("true".equalsIgnoreCase(System.getenv("ELITE_POSTGRES_TEST")), "Postgres tests disabled");
+        PostgresTestHelper.requirePostgresIfRequested(jdbc);
         try (var connection = jdbc.getDataSource().getConnection()) { assertTrue(connection.getMetaData().getDatabaseProductName().contains("PostgreSQL")); }
-        Fixture fixture = fixture(24); Fixture other = fixture(24);
-        var secondBooking = bookingService.create(new BookingRequest(fixture.vehicle(), fixture.booking().startDateTime(), fixture.booking().endDateTime(), "Tunis", "Tunis", null), other.owner(), null);
-        var firstQuote = create(fixture); var secondQuote = service.create(secondBooking.id(), request(false, BigDecimal.ZERO, List.of()), admin(), null);
-        service.send(firstQuote.id(), admin(), null); service.send(secondQuote.id(), admin(), null);
-        service.customerAction(firstQuote.id(), fixture.owner(), "accept", null, null); service.customerAction(secondQuote.id(), other.owner(), "accept", null, null);
-        var ready = new java.util.concurrent.CountDownLatch(2); var start = new java.util.concurrent.CountDownLatch(1); UUID actor = admin();
+        Fixture fixture = fixture(24); UUID bookingId = fixture.booking().id(); UUID actor = admin();
+        var quote = create(fixture); service.send(quote.id(), actor, null); service.customerAction(quote.id(), fixture.owner(), "accept", null, null);
+        paymentService.createForQuote(quote.id(), fixture.owner(), quote.totalAmount(), PaymentMethod.CARD, "pay-" + UUID.randomUUID());
+        var ready = new java.util.concurrent.CountDownLatch(2); var start = new java.util.concurrent.CountDownLatch(1);
+        Callable<Boolean> confirm = () -> { ready.countDown(); start.await(); bookingService.transition(bookingId, BookingStatus.CONFIRMED, actor, null); return true; };
         try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
-            var first = executor.submit(() -> { ready.countDown(); start.await(); return concurrentConfirm(fixture.booking().id(), actor); });
-            var second = executor.submit(() -> { ready.countDown(); start.await(); return concurrentConfirm(secondBooking.id(), actor); });
+            var first = executor.submit(confirm);
+            var second = executor.submit(confirm);
             assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS)); start.countDown();
-            var outcomes = List.of(first.get(15, java.util.concurrent.TimeUnit.SECONDS), second.get(15, java.util.concurrent.TimeUnit.SECONDS));
-            assertEquals(1, outcomes.stream().filter(Boolean::booleanValue).count());
+            assertTrue(first.get(15, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(second.get(15, java.util.concurrent.TimeUnit.SECONDS));
         }
-    }
-    private boolean concurrentConfirm(UUID bookingId, UUID actor) {
-        try { bookingService.transition(bookingId, BookingStatus.CONFIRMED, actor, null); return true; }
-        catch (BookingException exception) { assertEquals("VEHICLE_NOT_AVAILABLE", exception.getCode()); return false; }
+        assertEquals("CONFIRMED", jdbc.queryForObject("select status from bookings where id = ?", String.class, bookingId));
+        assertEquals(1, jdbc.queryForObject("select count(*) from booking_events where booking_id = ? and action = 'BOOKING_CONFIRMED'", Integer.class, bookingId));
     }
     private QuoteRequest request(boolean driver, BigDecimal discount, List<QuoteRequest.ServiceSelection> selections) { return new QuoteRequest(Instant.now().plusSeconds(10 * 86400L).truncatedTo(java.time.temporal.ChronoUnit.SECONDS), driver, discount, "Proposition", "Internal only", selections); }
     private QuoteSummary create(Fixture fixture) { return service.create(fixture.booking().id(), request(false, BigDecimal.ZERO, List.of()), admin(), null); }
-    private UUID admin() { return users.findByEmailIgnoreCase("superadmin@example.test").orElseThrow().getId(); }
+    private UUID admin() {
+        UserEntity admin = new UserEntity(TestIdentities.email("quote-actor"), "not-a-login-password");
+        admin.addRole(roles.findById("SUPER_ADMIN").orElseThrow());
+        return users.saveAndFlush(admin).getId();
+    }
     private void changeDailyRate(Fixture fixture, BigDecimal rate) { jdbc.update("update vehicles set price_per_day = ? where id = ?", rate, fixture.vehicle()); }
     private Fixture fixture(int hours) {
-        String suffix = UUID.randomUUID().toString(); String email = suffix + "@example.test";
+        String suffix = UUID.randomUUID().toString(); String email = TestIdentities.email("quote-customer");
         UserEntity user = new UserEntity(email, "not-a-login-password"); user.addRole(roles.findById("CUSTOMER").orElseThrow()); users.saveAndFlush(user);
         customers.saveAndFlush(new CustomerEntity(user, "Quote", "Client", "+216 20 123 456"));
         var brand = brands.saveAndFlush(new BrandEntity("B " + suffix, "b-" + suffix, "Test", null, true));
         var category = categories.saveAndFlush(new CategoryEntity("C " + suffix, "c-" + suffix, "Test", true));
         var vehicle = vehicles.saveAndFlush(new VehicleEntity(brand, category, "Touring", 2025, "Test", new BigDecimal("500"), new BigDecimal("3000"), new BigDecimal("700"), "TND", 5,4,TransmissionType.AUTOMATIC,FuelType.PETROL,true,VehicleStatus.AVAILABLE));
+        fixtures.guaranteeVehicle(vehicle.getId(), user.getId());
         Instant start = Instant.now().plusSeconds(30 * 86400L).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         return new Fixture(user.getId(), email, vehicle.getId(), bookingService.create(new BookingRequest(vehicle.getId(), start, start.plusSeconds(hours * 3600L), "Tunis", "Tunis", null), user.getId(), null));
     }

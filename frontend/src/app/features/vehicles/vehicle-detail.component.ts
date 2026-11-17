@@ -102,5 +102,5 @@ export class VehicleDetailComponent implements OnInit {
   protected fuelLabel(value: VehicleSummary['fuel']): string {
     return ({ PETROL: 'Essence', DIESEL: 'Diesel', HYBRID: 'Hybride', ELECTRIC: 'Électrique', PLUG_IN_HYBRID: 'Hybride rechargeable' })[value];
   }
-  protected statusLabel(value: VehicleSummary['status']): string { return value === 'AVAILABLE' ? 'Disponible' : 'Indisponible'; }
+  protected statusLabel(value: VehicleSummary['status']): string { return value === 'AVAILABLE' ? 'Ouvert à la réservation' : 'Indisponible'; }
 }

@@ -52,6 +52,8 @@ test.describe.serial('Service catalogue', () => {
   test('an agent can consult the catalogue but the server refuses any write', async ({ page, request }) => {
     await login(page, agentEmail, password);
     await page.goto('/admin/services');
+    await page.getByLabel('Recherche').fill(serviceName);
+    await page.getByLabel('Recherche').press('Enter');
     await expect(page.locator('tr', { hasText: serviceName })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Créer le service' })).toHaveCount(0);
     await expect(page.getByText('Votre rôle autorise la consultation du catalogue.')).toBeVisible();

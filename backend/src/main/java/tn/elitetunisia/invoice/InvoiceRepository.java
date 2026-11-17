@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface InvoiceRepository extends JpaRepository<InvoiceEntity, java.util.UUID> {
     Optional<InvoiceEntity> findByReference(String reference);
+    /** Facture principale d'une réservation (rattachée à un devis). Les factures complémentaires n'ont pas de devis. */
+    Optional<InvoiceEntity> findFirstByBookingIdAndQuoteIsNotNull(UUID bookingId);
     List<InvoiceEntity> findByCustomerId(UUID customerId);
 
     /** Charge les lignes avec la facture : open-in-view est désactivé, une collection paresseuse n'est plus lisible dans le contrôleur. */

@@ -65,7 +65,7 @@ public class PostgresIdempotencyIT {
             for (Future<UUID> future : futures) {
                 assertEquals(paymentId, future.get(30, TimeUnit.SECONDS));
             }
-            assertEquals(1L, payments.countByIdempotencyKey(key),
+            assertEquals(1L, payments.countByCustomerIdAndQuote_IdAndIdempotencyKey(fixture.owner(), quote.id(), key),
                     "There must be exactly one payment row for the idempotency key");
         } finally {
             ex.shutdownNow();

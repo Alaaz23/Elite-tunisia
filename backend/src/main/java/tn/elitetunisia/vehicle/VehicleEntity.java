@@ -36,6 +36,10 @@ public class VehicleEntity {
     @JoinColumn(name = "category_id", nullable = false)
     private CategoryEntity category;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "partner_id")
+    private tn.elitetunisia.partner.PartnerEntity partner;
+
     @Column(nullable = false, length = 120)
     private String model;
 
@@ -139,6 +143,8 @@ public class VehicleEntity {
     public void removeImage(VehicleImageEntity image) { images.remove(image); }
     public UUID getId() { return id; }
     public BrandEntity getBrand() { return brand; }
+    public tn.elitetunisia.partner.PartnerEntity getPartner() { return partner; }
+    public void setPartner(tn.elitetunisia.partner.PartnerEntity partner) { this.partner = partner; }
     public CategoryEntity getCategory() { return category; }
     public String getModel() { return model; }
     public Integer getYear() { return year; }

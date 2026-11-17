@@ -41,7 +41,12 @@ public class PaymentEntity {
     public String getCurrency() { return currency; }
     public PaymentMethod getMethod() { return method; }
     public PaymentStatus getStatus() { return status; }
-    public void setStatus(PaymentStatus status) { this.status = status; }
+    public void transitionTo(PaymentStatus target) {
+        if (!status.canTransitionTo(target)) {
+            throw new IllegalStateException("Transition de paiement illégale : " + status + " -> " + target);
+        }
+        this.status = target;
+    }
     public String getIdempotencyKey() { return idempotencyKey; }
     public String getTransactionRef() { return transactionRef; }
     public void setTransactionRef(String transactionRef) { this.transactionRef = transactionRef; }

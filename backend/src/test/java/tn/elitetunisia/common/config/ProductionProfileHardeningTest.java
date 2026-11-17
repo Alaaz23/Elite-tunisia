@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import tn.elitetunisia.TestIdentities;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -29,9 +30,22 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
         "spring.profiles.active=test,prod",
         "DATABASE_URL=jdbc:h2:mem:prod_profile_check;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
         "DATABASE_USERNAME=sa",
-        "DATABASE_PASSWORD=",
+        "DATABASE_PASSWORD=prod-profile-check-db-password",
+        // application-test.yml fournit un mot de passe vide (null) qui masque la propriété prod dans ce contexte.
+        "spring.datasource.password=prod-profile-check-db-password",
+        // Les propriétés système posées par EarlyTestPropertySetter (elite_test) l'emporteraient sur ${DATABASE_URL}
+        // lorsque la suite complète tourne dans la même JVM : on fixe donc l'URL et l'utilisateur ici.
+        "spring.datasource.url=jdbc:h2:mem:prod_profile_check;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE",
+        "spring.datasource.username=sa",
+        // PostgresTestHelper pose globalement (propriétés système) driver, dialecte, validate et Flyway désactivé
+        // lors de la suite PostgreSQL : cette fixture H2 doit fixer son propre schéma.
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false",
         "JWT_SECRET=prod-profile-check-secret-0123456789-abcdefghijklmnop",
-        "CORS_ALLOWED_ORIGINS=https://app.example.test" })
+        "CORS_ALLOWED_ORIGINS=https://app.example.test",
+        "STORAGE_LOCAL_PATH=target/prod-profile-check-uploads" })
 @AutoConfigureMockMvc
 class ProductionProfileHardeningTest {
     @Autowired MockMvc mvc;
@@ -52,8 +66,9 @@ class ProductionProfileHardeningTest {
     }
 
     @Test
-    void onlyHealthIsExposedByActuator() throws Exception {
+    void healthIsPublicWhileInfoRequiresAuthentication() throws Exception {
         mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+        mvc.perform(get("/actuator/info")).andExpect(status().isUnauthorized());
         for (String endpoint : new String[] { "env", "beans", "heapdump", "configprops", "loggers", "mappings" }) {
             mvc.perform(get("/actuator/" + endpoint)).andExpect(status().is4xxClientError());
         }
@@ -65,7 +80,7 @@ class ProductionProfileHardeningTest {
         String csrfCookie = csrf.getHeaders("Set-Cookie").stream().filter(c -> c.startsWith("XSRF-TOKEN=")).findFirst().orElseThrow();
         assertTrue(csrfCookie.contains("Secure"), csrfCookie.replaceAll("XSRF-TOKEN=[^;]*", "XSRF-TOKEN=<masqué>"));
 
-        String email = "prod-" + UUID.randomUUID() + "@example.test";
+        String email = TestIdentities.email("prod");
         String password = "Production-Strong-123!";
         var result = mvc.perform(withBrowserCsrf(post("/api/auth/register")).contentType(MediaType.APPLICATION_JSON)
                 .content(String.format("{\"firstName\":\"Prod\",\"lastName\":\"Check\",\"email\":\"%s\",\"phone\":\"+216 20 123 456\",\"password\":\"%s\",\"confirmPassword\":\"%s\"}", email, password, password)))
@@ -96,7 +111,7 @@ class ProductionProfileHardeningTest {
 
     @Test
     void authenticatedResponsesDoNotDeleteTheCsrfCookie() throws Exception {
-        String email = "csrf-" + UUID.randomUUID() + "@example.test";
+        String email = TestIdentities.email("csrf");
         String password = "Production-Strong-123!";
         var registered = mvc.perform(withBrowserCsrf(post("/api/auth/register")).contentType(MediaType.APPLICATION_JSON)
                 .content(String.format("{\"firstName\":\"Csrf\",\"lastName\":\"Check\",\"email\":\"%s\",\"phone\":\"+216 20 123 456\",\"password\":\"%s\",\"confirmPassword\":\"%s\"}", email, password, password)))

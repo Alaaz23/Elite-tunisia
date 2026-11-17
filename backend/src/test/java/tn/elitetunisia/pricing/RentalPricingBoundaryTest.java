@@ -15,33 +15,24 @@ class RentalPricingBoundaryTest {
     private final RentalPricingService pricing = new tn.elitetunisia.common.pricing.RentalPricingService();
 
     @Test
-    void pricingAt24HourBoundaries() {
-        Instant now = Instant.now().plusSeconds(60);
-        // Ensure microsecond precision (truncate nanos to microseconds)
-        now = now.truncatedTo(ChronoUnit.MICROS);
+    void everyStartedTwentyFourHourSliceIsBilled() {
+        Instant start = Instant.parse("2026-01-10T08:00:00Z");
+        BigDecimal dailyRate = BigDecimal.valueOf(100);
+        assertEquals(1, pricing.calculate(dailyRate, start, start.plus(1, ChronoUnit.HOURS)).days(), "1 h");
+        assertEquals(1, pricing.calculate(dailyRate, start, start.plus(23, ChronoUnit.HOURS)).days(), "23 h");
+        assertEquals(1, pricing.calculate(dailyRate, start, start.plus(24, ChronoUnit.HOURS)).days(), "24 h exactes");
+        assertEquals(2, pricing.calculate(dailyRate, start, start.plus(24, ChronoUnit.HOURS).plus(1, ChronoUnit.MINUTES)).days(), "24 h 1 min");
+        assertEquals(2, pricing.calculate(dailyRate, start, start.plus(47, ChronoUnit.HOURS)).days(), "47 h");
+        assertEquals(2, pricing.calculate(dailyRate, start, start.plus(48, ChronoUnit.HOURS)).days(), "48 h exactes");
+        var threeSlices = pricing.calculate(dailyRate, start, start.plus(48, ChronoUnit.HOURS).plus(1, ChronoUnit.MINUTES));
+        assertEquals(3, threeSlices.days(), "48 h 1 min");
+        assertEquals(new BigDecimal("300.000"), threeSlices.amount());
+    }
 
-        Instant start = now;
-        Instant justBefore24h = start.plus(24, ChronoUnit.HOURS).minusMillis(1);
-        Instant exactly24h = start.plus(24, ChronoUnit.HOURS);
-        Instant justAfter24h = start.plus(24, ChronoUnit.HOURS).plusMillis(1);
-        Instant plus24h1ms = start.plus(24, ChronoUnit.HOURS).plusMillis(1);
-        Instant plus48h1ms = start.plus(48, ChronoUnit.HOURS).plusMillis(1);
-
-        BigDecimal pricePerDay = BigDecimal.valueOf(100);
-
-        var p1 = pricing.calculate(pricePerDay, start, justBefore24h);
-        var p2 = pricing.calculate(pricePerDay, start, exactly24h);
-        var p3 = pricing.calculate(pricePerDay, start, justAfter24h);
-        var p4 = pricing.calculate(pricePerDay, start, plus24h1ms);
-        var p5 = pricing.calculate(pricePerDay, start, plus48h1ms);
-
-        // Expectations depend on the project's pricing rules: ensure monotonicity and day-count changes
-        assertTrue(p1.days() <= p2.days());
-        assertTrue(p2.days() <= p3.days());
-        assertTrue(p3.days() <= p4.days());
-        assertTrue(p4.days() < p5.days());
-
-        assertTrue(p1.amount().compareTo(BigDecimal.ZERO) > 0);
-        assertTrue(p5.amount().compareTo(p1.amount()) > 0);
+    @Test
+    void sliceCountIsIndependentOfLocalTimeZone() {
+        Instant start = Instant.parse("2026-03-28T22:30:00Z");
+        Instant end = start.plus(25, ChronoUnit.HOURS);
+        assertEquals(2, pricing.calculate(BigDecimal.TEN, start, end).days());
     }
 }

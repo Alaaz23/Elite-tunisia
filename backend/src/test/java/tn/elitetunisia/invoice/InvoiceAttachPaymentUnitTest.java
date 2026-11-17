@@ -22,13 +22,15 @@ public class InvoiceAttachPaymentUnitTest {
     @Mock tn.elitetunisia.quote.QuoteRepository quotes;
     @Mock tn.elitetunisia.booking.BookingRepository bookings;
     @Mock org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Mock tn.elitetunisia.booking.BookingService bookingService;
+    @Mock jakarta.persistence.EntityManager entityManager;
 
     InvoiceService svc;
 
     @BeforeEach
     void init() {
         MockitoAnnotations.openMocks(this);
-        svc = new InvoiceService(invoices, events, quotes, bookings, payments, jdbc);
+        svc = new InvoiceService(invoices, events, quotes, bookings, payments, jdbc, bookingService, entityManager);
     }
 
     @Test

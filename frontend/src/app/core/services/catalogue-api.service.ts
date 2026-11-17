@@ -54,7 +54,7 @@ export interface VehicleSummary {
   transmission: 'AUTOMATIC' | 'MANUAL' | 'SEMI_AUTOMATIC';
   fuel: 'PETROL' | 'DIESEL' | 'HYBRID' | 'ELECTRIC' | 'PLUG_IN_HYBRID';
   withDriverAvailable: boolean;
-  status: 'AVAILABLE' | 'RESERVED' | 'RENTED' | 'MAINTENANCE' | 'UNAVAILABLE';
+  status: 'AVAILABLE' | 'RESERVED' | 'RENTED' | 'MAINTENANCE' | 'UNAVAILABLE' | 'ARCHIVED';
   images: VehicleImage[];
   features: string[];
 }

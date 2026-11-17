@@ -7,6 +7,10 @@ public interface QuoteRepository extends JpaRepository<QuoteEntity, UUID>, JpaSp
     @Query("select quote from QuoteEntity quote where quote.id = :id")
     Optional<QuoteEntity> findLockedById(UUID id);
     Optional<QuoteEntity> findFirstByBookingIdOrderByVersionDesc(UUID bookingId);
+    Optional<QuoteEntity> findFirstByBookingIdAndStatusOrderByVersionDesc(UUID bookingId, QuoteStatus status);
+    // Projection sans verrou : permet de verrouiller la réservation avant le devis (ordre Vehicle → Booking → Quote).
+    @Query("select quote.booking.id from QuoteEntity quote where quote.id = :id and quote.customerId = :customerId")
+    Optional<UUID> findBookingIdForCustomer(UUID id, UUID customerId);
     Optional<QuoteEntity> findByIdAndCustomerId(UUID id, UUID customerId);
     @Query("select quote.id from QuoteEntity quote where quote.status = :status and quote.validUntil <= :now")
     List<UUID> expiredIds(QuoteStatus status, Instant now, org.springframework.data.domain.Pageable pageable);

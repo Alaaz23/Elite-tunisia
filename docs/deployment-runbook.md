@@ -12,12 +12,13 @@ Ce document décrit la procédure **générique** de déploiement. Aucune valeur
 ## 2. Variables d'environnement du backend
 | Variable | Obligatoire en prod | Rôle |
 |---|---|---|
-| `SPRING_PROFILES_ACTIVE=prod` | oui | Active `application-prod.yml` (Swagger/OpenAPI désactivés, cookies `Secure`). Sans cela, le profil par défaut est `dev`. |
+| `SPRING_PROFILES_ACTIVE=prod` | oui | Active `application-prod.yml` (Swagger/OpenAPI désactivés, cookies `Secure`). Il n'existe plus de profil par défaut : sans cette variable, le démarrage est sécurisé mais exige les variables de production ; `dev` doit être demandé explicitement. |
 | `DATABASE_URL` | oui | URL JDBC PostgreSQL. |
 | `DATABASE_USERNAME`, `DATABASE_PASSWORD` | oui | Identifiants du rôle applicatif. |
 | `JWT_SECRET` | oui | Au moins 32 octets, généré aléatoirement (ex. `openssl rand -base64 48`). Le démarrage échoue sinon. |
 | `CORS_ALLOWED_ORIGINS` | oui | Origine(s) exacte(s) du frontend, séparées par des virgules. |
-| `STORAGE_LOCAL_PATH` | recommandé | Dossier des uploads (défaut : `~/.elite-tunisia/uploads`). |
+| `STORAGE_LOCAL_PATH` | oui | Dossier des uploads, sur un volume persistant (requis en prod, sans valeur par défaut). |
+| `SERVER_FORWARD_HEADERS_STRATEGY` | derrière proxy | `framework` uniquement si le proxy réécrit `X-Forwarded-For`; défaut `none` (IP du client = connexion TCP). |
 | `MAX_IMAGE_SIZE`, `MAX_REQUEST_SIZE`, `MAX_IMAGE_SIZE_BYTES` | non | Limites d'upload (défauts : 10MB / 12MB / 10485760). |
 | `SERVER_PORT` | non | Défaut 8080. |
 | `QUOTE_DEFAULT_TAX_AMOUNT`, `QUOTE_TAX_CURRENCY`, `BOOKING_TIME_ZONE` | non | Paramètres métier (défauts : 0, TND, Africa/Tunis). Le taux de taxe est une décision métier. |
@@ -26,7 +27,7 @@ Fournir les secrets via le gestionnaire de secrets de la plateforme choisie, pas
 
 ## 3. Base de données et migrations
 1. Sauvegarder la base avant toute migration (§5).
-2. Flyway s'exécute au démarrage du backend (`spring.flyway.enabled=true`, `ddl-auto=validate`). Les migrations V1 à V20 ont été validées sur un PostgreSQL isolé ; aucune donnée historique représentative n'a été testée.
+2. Flyway s'exécute au démarrage du backend (`spring.flyway.enabled=true`, `ddl-auto=validate`). Les migrations V1 à V32 sont appliquées sur une base vierge dédiée `et_release_check` (démarrage du backend en profil `prod` : « Successfully applied 32 migrations ... now at version v32 »). La base `et_test_db` reste vide après la suite `-Ppostgres-test verify` (surefire 302/0/0/0, failsafe 17/0/0/0, exit 0) : elle ne prouve donc pas l'application des migrations. Aucune donnée historique représentative n'a été testée. Les brouillons `database/proposed/V21` et `V22` ne sont pas appliqués.
 3. Avant la première migration sur une base **non vide**, exécuter le contrôle en lecture seule `database/verification/preflight-before-flyway.sql`.
 4. Les fichiers `_DISABLED_*` ne sont pas exécutés ; ne pas les renommer sans décision (voir `docs/security-review-images-storage-migrations.md`).
 5. Retour arrière : Flyway Community n'a pas de migration inverse. Le retour arrière = restauration de la sauvegarde pré-migration (sur une base vide, jamais par-dessus la base en service) + redéploiement de la version précédente.
@@ -35,7 +36,7 @@ Fournir les secrets via le gestionnaire de secrets de la plateforme choisie, pas
 Voir `docs/first-admin.md` (script `database/admin/create-first-admin.sql`, exécuté manuellement). Il n'existe aucun endpoint public pour devenir administrateur.
 
 ## 5. Sauvegarde et restauration
-Scripts : `scripts/db-backup.ps1` et `scripts/db-restore.ps1` ; procédure détaillée dans `docs/backup-restore.md`.
+Équivalent : `scripts/db-backup.sh` (Linux) ; procédure détaillée et résultats de validation dans `docs/backup-restore.md`.
 - Planifier la sauvegarde (fréquence et rétention : `<à définir>`), la stocker hors du serveur, tester périodiquement une restauration sur une **base temporaire**.
 - Sauvegarder aussi le dossier des uploads : il est hors base.
 

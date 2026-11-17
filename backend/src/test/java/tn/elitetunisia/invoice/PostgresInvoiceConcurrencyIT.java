@@ -34,7 +34,7 @@ public class PostgresInvoiceConcurrencyIT {
     }
 
     @Test
-    public void concurrentInvoiceCreationProducesDistinctReferences() throws Exception {
+    public void concurrentInvoiceCreationProducesSingleMainInvoice() throws Exception {
         var f = fixtures.createBooking(24);
         var quoteReq = new tn.elitetunisia.quote.QuoteRequest(java.time.Instant.now().plusSeconds(10*86400L).truncatedTo(java.time.temporal.ChronoUnit.MICROS), false, java.math.BigDecimal.ZERO, "", "", java.util.List.of());
         var quote = quotes.create(f.booking().id(), quoteReq, f.owner(), null);
@@ -56,12 +56,15 @@ public class PostgresInvoiceConcurrencyIT {
         start.countDown();
 
         java.util.Set<String> refs = ConcurrentHashMap.newKeySet();
-        for (int i = 0; i < threads; i++) {
-            try { refs.add(futures[i].get(30, TimeUnit.SECONDS)); } catch (Exception e) { /* record if needed */ }
+        try {
+            for (int i = 0; i < threads; i++) refs.add(futures[i].get(30, TimeUnit.SECONDS));
+        } finally {
+            ex.shutdownNow();
         }
-        ex.shutdownNow();
 
-        // Expect as many distinct references as attempts (creating twice from same quote allowed)
-        assertEquals(threads, refs.size(), "Each concurrent creation should produce a distinct invoice reference");
+        // Une seule facture principale : toutes les demandes concurrentes renvoient la même référence.
+        assertEquals(1, refs.size(), "Concurrent creations from the same quote must return one invoice");
+        Long count = jdbc.queryForObject("select count(*) from invoices where quote_id = ?", Long.class, quote.id());
+        assertEquals(1L, count.longValue(), "Exactly one main invoice must exist for the quote");
     }
 }

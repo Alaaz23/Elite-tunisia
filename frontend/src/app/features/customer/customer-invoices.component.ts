@@ -1,12 +1,15 @@
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, inject, OnInit, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { InvoiceApiService, InvoiceSummary } from '../../core/services/invoice-api.service';
 import { extractFilenameFromContentDisposition } from '../../shared/utils/http';
 
-@Component({selector:'app-customer-invoices',template:`
+@Component({selector:'app-customer-invoices', imports: [DatePipe, DecimalPipe, RouterLink], template:`
   <section class="invoices"><h1>Mes factures</h1>
-    @if(loading()){<p>Chargement…</p>}
-    @if(error()){<p class="alert">{{error()}}</p>}
-    <ul>@for(inv of invoices();track inv.id){<li><strong>{{inv.reference}}</strong> — {{inv.issuedAt}} — {{inv.totalAmount}} {{inv.currency}} <button (click)="download(inv.id)">Télécharger</button></li>}</ul>
+    @if(loading()){<p role="status">Chargement…</p>}
+    @if(error()){<p class="alert" role="alert">{{error()}}</p>}
+    @if(!loading() && !error() && invoices().length === 0){<p>Aucune facture pour le moment.</p>}
+    <ul>@for(inv of invoices();track inv.id){<li><a [routerLink]="['/customer/invoices', inv.id]"><strong>{{inv.reference}}</strong></a> — {{inv.issuedAt | date: 'dd/MM/yyyy'}} — {{inv.totalAmount | number: '1.3-3'}} {{inv.currency}} <button type="button" (click)="download(inv.id)">Télécharger</button></li>}</ul>
   </section>`})
 export class CustomerInvoicesComponent implements OnInit{
   private readonly api=inject(InvoiceApiService);

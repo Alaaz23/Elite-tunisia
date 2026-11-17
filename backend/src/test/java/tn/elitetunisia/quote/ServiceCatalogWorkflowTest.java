@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import tn.elitetunisia.PostgresTestHelper;
+import tn.elitetunisia.TestIdentities;
 import tn.elitetunisia.auth.entity.UserEntity;
 import tn.elitetunisia.auth.repository.RoleRepository;
 import tn.elitetunisia.auth.repository.UserRepository;
@@ -52,7 +53,7 @@ class ServiceCatalogWorkflowTest {
     private static String unique(String prefix) { return prefix + " " + UUID.randomUUID().toString().substring(0, 8); }
 
     private UUID staff() {
-        var user = new UserEntity("svc-staff-" + UUID.randomUUID() + "@example.test", "not-a-login-password");
+        var user = new UserEntity(TestIdentities.email("svc-staff"), "not-a-login-password");
         user.addRole(roles.findById("MANAGER").orElseThrow());
         users.saveAndFlush(user);
         employees.saveAndFlush(new EmployeeEntity(user, "EMP-" + UUID.randomUUID().toString().substring(0, 8), "Manager", "Svc", "Staff", "+216 20 000 000"));
@@ -60,7 +61,7 @@ class ServiceCatalogWorkflowTest {
     }
 
     private RequestPostProcessor caller(String... authorities) {
-        var user = new UserEntity("svc-http-" + UUID.randomUUID() + "@example.test", "not-a-login-password");
+        var user = new UserEntity(TestIdentities.email("svc-http"), "not-a-login-password");
         user.addRole(roles.findById("MANAGER").orElseThrow());
         users.saveAndFlush(user);
         employees.saveAndFlush(new EmployeeEntity(user, "EMP-" + UUID.randomUUID().toString().substring(0, 8), "Manager", "Svc", "Http", "+216 20 000 000"));

@@ -60,7 +60,7 @@ static {
         PaymentEntity second = paymentService.createForQuote(quote.id(), f.owner(), quote.totalAmount(), PaymentMethod.CARD, key);
         assertEquals(first.getId(), second.getId());
 
-        var stored = payments.findByIdempotencyKey(key).orElseThrow();
+        var stored = payments.findByCustomerIdAndQuote_IdAndIdempotencyKey(f.owner(), quote.id(), key).orElseThrow();
         assertEquals(first.getId(), stored.getId());
 
         assertEquals(f.owner(), stored.getCustomerId());
@@ -79,7 +79,7 @@ static {
         String key = "itest-key-" + UUID.randomUUID();
         var ex = assertThrows(RuntimeException.class, () -> paymentService.createForQuote(quote.id(), f.owner(), quote.totalAmount(), PaymentMethod.CARD, key));
         assertTrue(ex.getMessage().contains("QUOTE_NOT_ACCEPTED") || ex.getMessage().contains("QUOTE_NOT_ACCEPTED"));
-        assertTrue(payments.findByIdempotencyKey(key).isEmpty());
+        assertTrue(payments.findByCustomerIdAndQuote_IdAndIdempotencyKey(f.owner(), quote.id(), key).isEmpty());
     }
 
     @Test void paymentApiUsesAuthenticatedOwnerAndRejectsForgedAmountAndForeignAccess() throws Exception {
@@ -98,14 +98,14 @@ static {
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("CAPTURED"));
-        assertEquals(fixture.owner(), payments.findByIdempotencyKey(key).orElseThrow().getCustomerId());
+        assertEquals(fixture.owner(), payments.findByCustomerIdAndQuote_IdAndIdempotencyKey(fixture.owner(), quote.id(), key).orElseThrow().getCustomerId());
         body.put("amount", BigDecimal.ONE); body.put("idempotencyKey", "forged-" + UUID.randomUUID());
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(url).with(owner)
                 .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("PAYMENT_AMOUNT_MISMATCH"));
-        assertTrue(payments.findByIdempotencyKey((String) body.get("idempotencyKey")).isEmpty());
+        assertTrue(payments.findByCustomerIdAndQuote_IdAndIdempotencyKey(fixture.owner(), quote.id(), (String) body.get("idempotencyKey")).isEmpty());
         var other = fixtures.createBooking(24);
         String otherEmail = jdbc.queryForObject("select email from users where id = ?", String.class, other.owner());
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(url)
@@ -122,16 +122,18 @@ static {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
     }
 
-    @Test void sameIdempotencyKeyCannotPayAnotherQuote() {
+    @Test void sameIdempotencyKeyIsScopedByCustomerAndQuote() {
         var fixture = fixtures.createBooking(24);
         var first = acceptedQuote(fixture);
-        String key = "conflict-" + UUID.randomUUID();
+        String key = "scope-" + UUID.randomUUID();
         var payment = paymentService.createForQuote(first.id(), fixture.owner(), first.totalAmount(), PaymentMethod.CARD, key);
         var other = fixtures.createBooking(24);
         var second = acceptedQuote(other);
-        assertEquals("IDEMPOTENCY_CONFLICT", assertThrows(tn.elitetunisia.payment.PaymentException.class,
-                () -> paymentService.createForQuote(second.id(), other.owner(), second.totalAmount(), PaymentMethod.CARD, key)).getCode());
-        assertEquals(payment.getId(), payments.findByIdempotencyKey(key).orElseThrow().getId());
+        var otherPayment = paymentService.createForQuote(second.id(), other.owner(), second.totalAmount(), PaymentMethod.CARD, key);
+        assertNotEquals(payment.getId(), otherPayment.getId());
+        assertEquals(1L, payments.countByCustomerIdAndQuote_IdAndIdempotencyKey(fixture.owner(), first.id(), key));
+        assertEquals(1L, payments.countByCustomerIdAndQuote_IdAndIdempotencyKey(other.owner(), second.id(), key));
+        assertEquals(0L, payments.countByCustomerIdAndQuote_IdAndIdempotencyKey(fixture.owner(), second.id(), key));
         assertEquals(2, jdbc.queryForObject("select count(*) from payment_events where payment_id = ?", Integer.class, payment.getId()));
     }
 

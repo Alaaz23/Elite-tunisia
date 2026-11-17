@@ -3,6 +3,8 @@ import { expect, test } from './fixtures';
 import { readFileSync } from 'node:fs';
 import { Temporal } from '@js-temporal/polyfill';
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
+import { grantFleetGuarantee } from './fleet-setup';
+import { acceptAndPayQuote } from './quote-setup';
 
 test.describe.serial('Booking engine with real API', () => {
   const suffix = Date.now().toString();
@@ -13,6 +15,7 @@ test.describe.serial('Booking engine with real API', () => {
   const model = `Booking Touring ${suffix}`;
   const start = Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({ days: 45 }).with({ hour: 10, minute: 0, second: 0, millisecond: 0, microsecond: 0, nanosecond: 0 });
   const end = start.add({ days: 2 });
+  const validUntil = Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({ days: 10 }).with({ millisecond: 0, microsecond: 0, nanosecond: 0 }).toInstant().toString();
   let vehicleId = ''; let bookingId = ''; let reference = '';
 
   test.beforeAll(async ({ request }) => {
@@ -25,6 +28,9 @@ test.describe.serial('Booking engine with real API', () => {
       transmission: 'AUTOMATIC', fuel: 'PETROL', withDriverAvailable: false, status: 'AVAILABLE', features: [], images: [],
     });
     vehicleId = vehicle.id as string;
+    await grantFleetGuarantee(request, admin, vehicleId, suffix,
+      Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({ days: 1 }).toInstant().toString(),
+      Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({ days: 89 }).toInstant().toString());
     await mutate(request, admin, 'POST', '/api/admin/users', { firstName: 'Booking', lastName: 'Agent', email: agentEmail,
       phone: '+216 20 123 456', password, role: 'AGENT', jobTitle: 'Agent' });
     for (const email of [customerEmail, otherEmail]) {
@@ -66,6 +72,9 @@ test.describe.serial('Booking engine with real API', () => {
   });
 
   test('authorized agent finds and confirms the request; overlap is refused', async ({ page, request }) => {
+    const adminToken = await apiLogin(request, ADMIN_EMAIL, ADMIN_PASSWORD);
+    const customerToken = await apiLogin(request, customerEmail, password);
+    await acceptAndPayQuote(request, adminToken, customerToken, bookingId, validUntil);
     await login(page, agentEmail, password, true);
     await page.getByRole('link', { name: 'Réservations', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Réservations', exact: true })).toBeVisible();
@@ -120,6 +129,7 @@ test.describe.serial('Booking engine with real API', () => {
       pickupLocation: 'Tunis', dropoffLocation: 'Tunis',
     });
     const adminToken = await apiLogin(request, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await acceptAndPayQuote(request, adminToken, ownerToken, booking.id as string, validUntil);
     await mutate(request, adminToken, 'PATCH', `/api/admin/bookings/${booking.id}/confirm`, {});
 
     await login(page, agentEmail, password, true);

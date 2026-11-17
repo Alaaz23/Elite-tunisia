@@ -1,6 +1,7 @@
 package tn.elitetunisia.vehicle;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import tn.elitetunisia.booking.BookingRepository;
+import tn.elitetunisia.booking.BookingStatus;
 import tn.elitetunisia.brand.BrandEntity;
 import tn.elitetunisia.brand.BrandRepository;
 import tn.elitetunisia.catalogue.CatalogueNotFoundException;
@@ -29,6 +32,7 @@ import tn.elitetunisia.catalogue.dto.VehicleSummary;
 import tn.elitetunisia.category.CategoryEntity;
 import tn.elitetunisia.category.CategoryRepository;
 import tn.elitetunisia.common.audit.AuditService;
+import tn.elitetunisia.common.exception.DomainException;
 import tn.elitetunisia.common.storage.FileStorageService;
 
 @Service
@@ -37,16 +41,21 @@ public class VehicleService {
     private final VehicleRepository vehicles;
     private final BrandRepository brands;
     private final CategoryRepository categories;
+    private final BookingRepository bookings;
     private final AuditService audit;
     private final FileStorageService storage;
+    private final tn.elitetunisia.partner.VehiclePartnerAssignmentRepository partnerAssignments;
 
     public VehicleService(VehicleRepository vehicles, BrandRepository brands, CategoryRepository categories,
-            AuditService audit, FileStorageService storage) {
+            BookingRepository bookings, AuditService audit, FileStorageService storage,
+            tn.elitetunisia.partner.VehiclePartnerAssignmentRepository partnerAssignments) {
         this.vehicles = vehicles;
         this.brands = brands;
         this.categories = categories;
+        this.bookings = bookings;
         this.audit = audit;
         this.storage = storage;
+        this.partnerAssignments = partnerAssignments;
     }
 
     @Transactional(readOnly = true)
@@ -96,7 +105,7 @@ public class VehicleService {
     @Transactional
     public VehicleSummary update(UUID id, VehicleUpsertRequest request, UUID actorId, String ipAddress) {
         validateImages(request.images());
-        VehicleEntity vehicle = find(id);
+        VehicleEntity vehicle = findLocked(id);
         BrandEntity brand = brands.findById(request.brandId()).orElseThrow(CatalogueNotFoundException::new);
         CategoryEntity category = categories.findById(request.categoryId()).orElseThrow(CatalogueNotFoundException::new);
         List<String> retainedUrls = request.images() == null ? List.of() : request.images().stream().map(VehicleImageRequest::url).toList();
@@ -105,7 +114,10 @@ public class VehicleService {
         vehicle.update(brand, category, request.model().trim(), request.year(), request.description().trim(),
                 request.pricePerDay(), request.pricePerWeek(), request.priceWithDriver(), request.currency(), request.passengers(),
                 request.doors(), request.transmission(), request.fuel(), request.withDriverAvailable());
-        if (request.status() != null) vehicle.setStatus(request.status());
+        if (request.status() != null) {
+            requireStatusChangeAllowed(id, vehicle.getStatus(), request.status());
+            vehicle.setStatus(request.status());
+        }
         vehicle.getFeatures().clear();
         vehicle.getImages().clear();
         vehicles.flush();
@@ -118,7 +130,8 @@ public class VehicleService {
 
     @Transactional
     public VehicleSummary updateStatus(UUID id, VehicleStatusRequest request, UUID actorId, String ipAddress) {
-        VehicleEntity vehicle = find(id);
+        VehicleEntity vehicle = findLocked(id);
+        requireStatusChangeAllowed(id, vehicle.getStatus(), request.status());
         vehicle.setStatus(request.status());
         audit.recordAudit(actorId, "VEHICLE_STATUS_UPDATED", "VEHICLE", id, ipAddress, "SUCCESS");
         return summary(vehicle);
@@ -126,7 +139,13 @@ public class VehicleService {
 
     @Transactional
     public void delete(UUID id, UUID actorId, String ipAddress) {
-        VehicleEntity vehicle = find(id);
+        VehicleEntity vehicle = findLocked(id);
+        if (bookings.countByVehicle(id, List.of(BookingStatus.values())) > 0) {
+            throw DomainException.conflict("VEHICLE_HAS_BOOKINGS");
+        }
+        if (partnerAssignments.existsByVehicleId(id)) {
+            throw DomainException.conflict("VEHICLE_HAS_PARTNER_HISTORY");
+        }
         List<String> urls = vehicle.getImages().stream().map(VehicleImageEntity::getUrl).toList();
         vehicles.delete(vehicle);
         scheduleFileDeletion(urls);
@@ -134,6 +153,23 @@ public class VehicleService {
     }
 
     private VehicleEntity find(UUID id) { return vehicles.findById(id).orElseThrow(CatalogueNotFoundException::new); }
+
+    private VehicleEntity findLocked(UUID id) { return vehicles.findLocked(id).orElseThrow(CatalogueNotFoundException::new); }
+
+    /**
+     * Retirer (UNAVAILABLE), archiver (ARCHIVED) ou mettre en maintenance un véhicule est refusé pendant une location
+     * en cours ou une réservation confirmée future (D-PA-16). Le verrou véhicule (pris avant cette vérification)
+     * sérialise la création de réservations, qui verrouille aussi le véhicule.
+     */
+    private void requireStatusChangeAllowed(UUID vehicleId, VehicleStatus current, VehicleStatus target) {
+        if (current == target) return;
+        boolean inProgress = bookings.countByVehicle(vehicleId, List.of(BookingStatus.IN_PROGRESS)) > 0;
+        boolean confirmedAhead = bookings.countByVehicleEndingAfter(vehicleId, BookingStatus.CONFIRMED, Instant.now()) > 0;
+        boolean blocking = target == VehicleStatus.UNAVAILABLE || target == VehicleStatus.MAINTENANCE || target == VehicleStatus.ARCHIVED;
+        if (blocking && (inProgress || confirmedAhead)) {
+            throw DomainException.conflict("VEHICLE_HAS_ACTIVE_BOOKING");
+        }
+    }
 
     private boolean isPublic(VehicleEntity vehicle) {
         return vehicle.getStatus() == VehicleStatus.AVAILABLE && vehicle.getBrand().isActive() && vehicle.getCategory().isActive();

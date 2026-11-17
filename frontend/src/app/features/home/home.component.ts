@@ -1,35 +1,55 @@
-import { Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, inject, signal } from '@angular/core';
+import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
+import { CatalogueApiService, CategorySummary } from '../../core/services/catalogue-api.service';
 
 @Component({
   selector: 'app-home',
-  imports: [RouterLink],
+  imports: [RouterLink, ReactiveFormsModule],
   template: `
     <section class="hero">
-      <img class="hero-photo" src="https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=2400&q=88" alt="Porsche 911, voiture de grand tourisme" fetchpriority="high">
+      <img class="hero-photo" src="https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=2400&q=88" alt="Voiture de grand tourisme, hero Elite Tunisia" fetchpriority="high">
       <div class="hero-wash"></div>
       <div class="hero-content">
-        <p class="eyebrow">TUNISIA, AT YOUR OWN PACE</p>
-        <h1>Luxury Mobility<br><em>in Tunisia</em></h1>
-        <p class="hero-copy">Discover Tunisia with exceptional vehicles and<br class="desktop-break"> personalized chauffeur services.</p>
-        <div class="hero-actions"><a class="button button-light" routerLink="/vehicles">Explore our fleet <span aria-hidden="true">↗</span></a><a class="text-link" routerLink="/contact">Request a quote <span aria-hidden="true">↗</span></a></div>
+        <p class="eyebrow">ELITE TUNISIA · LOCATION DE PRESTIGE</p>
+        <h1>Une mobilité<br><em>d’exception.</em></h1>
+                <p class="hero-copy">Une sélection de véhicules premium pour découvrir la Tunisie, avec une disponibilité vérifiée pour vos dates.</p>
+        <div class="hero-actions"><a class="button button-light" routerLink="/vehicles">Voir la flotte <span aria-hidden="true">↗</span></a><a class="text-link" routerLink="/contact">Demander un devis <span aria-hidden="true">↗</span></a></div>
       </div>
-      <div class="hero-caption"><span>01 — MOBILITY, CONSIDERED</span><span>49° 51′ N &nbsp; / &nbsp; 10° 10′ E</span></div>
+    </section>
+    <section class="search-section" aria-labelledby="search-title">
+      <div><p class="eyebrow">RECHERCHE</p><h2 id="search-title">Trouver un véhicule</h2></div>
+      <form class="search-form" [formGroup]="form" (ngSubmit)="search()">
+        <label><span>Modèle ou marque</span><input formControlName="search" placeholder="Ex. Porsche" autocomplete="off"></label>
+        <label><span>Catégorie</span><select formControlName="category"><option value="">Toutes les catégories</option>@for (category of categories(); track category.id) { <option [value]="category.slug">{{ category.name }}</option> }</select></label>
+        <button class="button button-dark" type="submit">Rechercher</button>
+      </form>
+    </section>
+    <section class="categories-section" aria-labelledby="categories-title">
+      <div class="section-heading"><div><p class="eyebrow">CATÉGORIES</p><h2 id="categories-title">Choisir une <em>catégorie.</em></h2></div><a class="text-link dark-link" routerLink="/vehicles">Toute la flotte <span aria-hidden="true">↗</span></a></div>
+      @if (categoriesState() === 'loading') { <p class="notice" role="status">Chargement des catégories…</p> }
+      @if (categoriesState() === 'error') { <p class="notice" role="status">Les catégories ne sont pas disponibles pour le moment. Vous pouvez consulter la flotte complète.</p> }
+      @if (categoriesState() === 'ready' && categories().length === 0) { <p class="notice">Aucune catégorie n’est publiée pour le moment.</p> }
+      <div class="category-grid">
+        @for (category of categories(); track category.id) {
+          <a class="category-item" routerLink="/vehicles" [queryParams]="{ category: category.slug }"><span>{{ category.name }}</span>@if (category.description) { <small>{{ category.description }}</small> }<span aria-hidden="true">↗</span></a>
+        }
+      </div>
     </section>
     <section class="intro-section">
-      <div class="intro-index">01 <span>/</span> THE EXPERIENCE</div>
-      <div class="intro-copy"><p class="eyebrow">A MORE PERSONAL WAY TO TRAVEL</p><h2>Made for the<br><em>long way round.</em></h2><p>From the first mile to the final destination, discover a considered collection of vehicles and personal mobility services for the Tunisian coast, city and countryside.</p></div>
+      <div class="intro-index">01 <span>/</span> L’AGENCE</div>
+      <div class="intro-copy"><p class="eyebrow">UNE LOCATION PENSÉE AVEC SOIN</p><h2>Chaque trajet,<br><em>préparé.</em></h2><p>Elite Tunisia propose une flotte de véhicules premium pour vos déplacements en Tunisie. Chaque véhicule est présenté avec ses caractéristiques réelles, et sa disponibilité est vérifiée auprès de notre système pour les dates que vous choisissez.</p></div>
       <div class="intro-mark" aria-hidden="true">ET</div>
     </section>
     <section class="services-section">
-      <div class="section-heading"><div><p class="eyebrow">HOW WE MOVE</p><h2>Choose your <em>way.</em></h2></div><a class="text-link dark-link" routerLink="/services">Discover our services <span aria-hidden="true">↗</span></a></div>
+      <div class="section-heading"><div><p class="eyebrow">NOS SERVICES</p><h2>Choisissez <em>votre formule.</em></h2></div><a class="text-link dark-link" routerLink="/services">Tous nos services <span aria-hidden="true">↗</span></a></div>
       <div class="service-grid">
-        <a class="service-item" routerLink="/vehicles"><span class="service-number">01</span><div><h3>Self-drive</h3><p>Time and space to make the journey your own.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
-        <a class="service-item" routerLink="/chauffeur"><span class="service-number">02</span><div><h3>Private chauffeur</h3><p>A discreet, personal service shaped around your day.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
-        <a class="service-item" routerLink="/airport-transfer"><span class="service-number">03</span><div><h3>Airport transfer</h3><p>A seamless arrival, from runway to destination.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
+        <a class="service-item" routerLink="/vehicles"><span class="service-number">01</span><div><h3>Location libre-service</h3><p>Conduisez le véhicule de votre choix pendant toute la durée de votre séjour.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
+        <a class="service-item" routerLink="/chauffeur"><span class="service-number">02</span><div><h3>Chauffeur privé</h3><p>Un service discret, organisé autour de votre programme.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
+        <a class="service-item" routerLink="/airport-transfer"><span class="service-number">03</span><div><h3>Transfert aéroport</h3><p>Une prise en charge à l’arrivée, jusqu’à votre destination.</p></div><span class="service-arrow" aria-hidden="true">↗</span></a>
       </div>
     </section>
-    <section class="closing-section"><p class="eyebrow">YOUR NEXT CHAPTER STARTS HERE</p><h2>Go a little<br><em>further.</em></h2><a class="button button-dark" routerLink="/contact">Speak with our team <span aria-hidden="true">↗</span></a></section>
+    <section class="closing-section"><p class="eyebrow">VOTRE PROCHAIN TRAJET COMMENCE ICI</p><h2>Prenez la route<br><em>autrement.</em></h2><a class="button button-dark" routerLink="/vehicles">Explorer la flotte <span aria-hidden="true">↗</span></a></section>
   `,
   styles: `
     :host { display:block; }
@@ -49,7 +69,6 @@ import { RouterLink } from '@angular/router';
     .button-light { background:#f6f5f1; color:#202720; }
     .text-link { color:#fff; font-size:.82rem; text-decoration:none; }
     .text-link span, .button span { color:#b5975d; }
-    .hero-caption { position:absolute; z-index:1; right:clamp(1.5rem,8vw,8rem); bottom:1.7rem; left:clamp(1.5rem,8vw,8rem); display:flex; justify-content:space-between; color:rgba(255,255,255,.7); font-size:.62rem; letter-spacing:.12em; }
     .intro-section { position:relative; display:grid; max-width:1200px; min-height:460px; grid-template-columns:1fr 2fr 1fr; align-items:center; margin:0 auto; padding:6rem clamp(1.5rem,7vw,7rem); }
     .intro-index { align-self:start; color:var(--color-muted); font-size:.68rem; letter-spacing:.1em; }
     .intro-index span { margin:0 .5rem; color:var(--color-metal); }
@@ -75,6 +94,22 @@ import { RouterLink } from '@angular/router';
     .closing-section h2 { margin:1rem 0 1.6rem; }
     .button-dark { background:var(--color-ink); color:#fff; }
     .button-dark:hover { background:var(--color-olive); }
+    .search-section { position:relative; z-index:2; display:flex; max-width:1060px; flex-wrap:wrap; align-items:end; justify-content:space-between; gap:1.5rem; margin:-3rem auto 0; padding:1.8rem; background:#fff; box-shadow:0 18px 40px rgba(31,39,33,.12); }
+    .search-section h2 { margin:.4rem 0 0; font:500 1.6rem var(--font-display); }
+    .search-form { display:grid; flex:1 1 560px; grid-template-columns:1fr 1fr auto; gap:.8rem; align-items:end; }
+    .search-form label { display:grid; gap:.4rem; color:var(--color-muted); font-size:.7rem; letter-spacing:.06em; }
+    .search-form input, .search-form select { min-height:46px; padding:0 .8rem; border:1px solid #c9cec5; background:#f8f8f5; color:var(--color-ink); font:inherit; }
+    .search-form .button { min-height:46px; padding:0 1.4rem; }
+    .categories-section { max-width:1060px; margin:0 auto; padding:5rem clamp(1.5rem,7vw,7rem) 1rem; }
+    .categories-section .section-heading { margin-bottom:0; }
+    .category-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1px; margin-top:2rem; border:1px solid #c9cec5; background:#c9cec5; }
+    .category-item { display:grid; gap:.5rem; min-height:150px; padding:1.4rem; background:var(--color-paper); color:var(--color-ink); text-decoration:none; transition:background .2s; }
+    .category-item:hover { background:#e9ece5; }
+    .category-item > span:first-child { font:500 1.4rem var(--font-display); }
+    .category-item > span:last-child { color:var(--color-olive); }
+    .category-item small { color:var(--color-muted); font-size:.8rem; line-height:1.6; }
+    .notice { color:var(--color-muted); font-size:.85rem; }
+    .services-section .section-heading { margin-top:0; }
     @keyframes hero-arrive { from { transform:scale(1.035); opacity:.72; } to { transform:scale(1); opacity:1; } }
     @keyframes copy-arrive { from { transform:translateY(16px); opacity:0; } to { transform:translateY(0); opacity:1; } }
     @media(max-width:760px) {
@@ -86,8 +121,9 @@ import { RouterLink } from '@angular/router';
       .hero-copy { max-width:31ch; }
       .desktop-break { display:none; }
       .hero-actions { align-items:flex-start; flex-direction:column; gap:1.2rem; }
-      .hero-caption { right:1.5rem; left:1.5rem; font-size:.55rem; }
-      .hero-caption span:last-child { display:none; }
+      .search-form { grid-template-columns:1fr; }
+      .search-section { margin-top:-2rem; padding:1.4rem; }
+      .category-item { min-height:120px; }
       .intro-section { min-height:0; grid-template-columns:1fr; gap:2rem; padding-top:4.5rem; padding-bottom:4.5rem; }
       .intro-mark { display:none; }
       .services-section { padding-top:4rem; padding-bottom:4rem; }
@@ -99,4 +135,29 @@ import { RouterLink } from '@angular/router';
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; } }
   `,
 })
-export class HomeComponent {}
+export class HomeComponent {
+  private readonly builder = inject(FormBuilder);
+  private readonly router = inject(Router);
+  private readonly catalogue = inject(CatalogueApiService);
+
+  protected readonly form = this.builder.nonNullable.group({ search: '', category: '' });
+  protected readonly categories = signal<CategorySummary[]>([]);
+  protected readonly categoriesState = signal<'loading' | 'ready' | 'error'>('loading');
+
+  constructor() {
+    this.catalogue.categories().subscribe({
+      next: (page) => {
+        this.categories.set(page.content);
+        this.categoriesState.set('ready');
+      },
+      error: () => this.categoriesState.set('error'),
+    });
+  }
+
+  protected search(): void {
+    const { search, category } = this.form.getRawValue();
+    void this.router.navigate(['/vehicles'], {
+      queryParams: { search: search.trim() || null, category: category || null },
+    });
+  }
+}

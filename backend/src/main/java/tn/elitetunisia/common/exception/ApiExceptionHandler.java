@@ -95,6 +95,7 @@ public class ApiExceptionHandler {
             Map.entry("DRIVER_LICENSE_EXPIRED", "Le permis de ce chauffeur est expiré."),
             Map.entry("DRIVER_NOT_CERTIFIED", "Ce chauffeur n'est pas certifié."),
             Map.entry("DRIVER_NOT_AVAILABLE", "Ce chauffeur n'est pas disponible sur cette période."),
+            Map.entry("GUARANTEE_OVERLAP", "Une garantie active chevauche déjà cette période pour ce véhicule."),
             Map.entry("TRANSFER_BOOKING_STATUS", "Un transfert ne peut être planifié que pour une réservation en attente ou confirmée."),
             Map.entry("TRANSFER_OUTSIDE_BOOKING_PERIOD", "La prise en charge doit se situer pendant la période de la réservation."),
             Map.entry("TRANSFER_TOO_MANY_PASSENGERS", "Le nombre de passagers dépasse la capacité du véhicule."),
@@ -103,7 +104,9 @@ public class ApiExceptionHandler {
             Map.entry("TRANSFER_LEGACY_BOOKING_REQUIRED", "Ce transfert n'est rattaché à aucune réservation."),
             Map.entry("TRANSFER_DRIVER_MISMATCH", "Cette réservation a déjà un autre chauffeur affecté."),
             Map.entry("SERVICE_NAME_TAKEN", "Un service actif porte déjà ce nom dans cette devise."),
-            Map.entry("SERVICE_NAME_TOO_SHORT", "Le nom du service doit contenir au moins 2 caractères."));
+            Map.entry("SERVICE_NAME_TOO_SHORT", "Le nom du service doit contenir au moins 2 caractères."),
+            Map.entry("VEHICLE_HAS_ACTIVE_BOOKING", "Ce véhicule a une réservation confirmée ou en cours : il ne peut pas être retiré ni mis en maintenance pour cette période."),
+            Map.entry("VEHICLE_HAS_BOOKINGS", "Ce véhicule possède un historique de réservations et ne peut pas être supprimé. Retirez-le du catalogue à la place."));
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> handleValidation(MethodArgumentNotValidException exception) {
@@ -182,16 +185,39 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem(HttpStatus.NOT_FOUND, "La ressource demandée est introuvable."));
     }
 
+    /**
+     * Classe les violations PostgreSQL par source. Le message SQL brut n'est jamais renvoyé au client :
+     * seul le code métier explicite l'est.
+     */
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ProblemDetail> handleConflict(DataIntegrityViolationException exception) {
-        Throwable cause = exception;
-        while (cause != null) {
-            if (cause instanceof java.sql.SQLException sql && "23P01".equals(sql.getSQLState())) {
+        java.sql.SQLException sql = sqlCause(exception);
+        String state = sql == null ? null : sql.getSQLState();
+        String message = sql == null || sql.getMessage() == null ? "" : sql.getMessage().toLowerCase(java.util.Locale.ROOT);
+        if ("23P01".equals(state)) {
+            if (message.contains("garantie chevauchante")) {
+                return handleDomain(DomainException.conflict("GUARANTEE_OVERLAP"));
+            }
+            if (message.contains("période déjà bloquée") || message.contains("bookings_no_blocking_overlap")) {
                 return handleBooking(new tn.elitetunisia.booking.BookingException("VEHICLE_NOT_AVAILABLE", "Ce véhicule est déjà réservé pour cette période."));
             }
-            cause = cause.getCause();
+        }
+        if ("23514".equals(state) && message.contains("aucune garantie active")) {
+            return handleBooking(new tn.elitetunisia.booking.BookingException("VEHICLE_NOT_AVAILABLE", "La garantie de cette réservation ne couvre plus la période demandée."));
         }
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem(HttpStatus.CONFLICT, "Cette demande entre en conflit avec des données existantes."));
+    }
+
+    private static java.sql.SQLException sqlCause(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.sql.SQLException sql && sql.getSQLState() != null) return sql;
+        }
+        return null;
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ProblemDetail> handleMethodNotAllowed(Exception exception) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(problem(HttpStatus.METHOD_NOT_ALLOWED, "Méthode HTTP non autorisée pour cette ressource."));
     }
 
     @ExceptionHandler(Exception.class)

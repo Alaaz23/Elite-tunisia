@@ -89,6 +89,22 @@ class InvoiceAccessControlTest {
     }
 
     @Test
+    void adminInvoiceListIsPagedWithBoundedSizeAndWhitelistedSort() throws Exception {
+        var owner = fixtures.createBooking(24);
+        invoiceFor(owner);
+        mvc.perform(get("/api/admin/invoices").with(admin("invoices:read")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").isNumber());
+        mvc.perform(get("/api/admin/invoices?size=100000").with(admin("invoices:read")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.size").value(100));
+        mvc.perform(get("/api/admin/invoices?sort=passwordHash").with(admin("invoices:read")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void staffWithoutInvoiceReadAndCustomersCannotUseTheAdministrationEndpoints() throws Exception {
         var owner = fixtures.createBooking(24);
         var invoice = invoiceFor(owner);

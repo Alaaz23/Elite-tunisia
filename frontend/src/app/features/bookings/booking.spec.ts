@@ -100,6 +100,15 @@ describe('Booking detail and protection', () => {
     http.expectOne('/api/bookings/booking-1/cancel').flush({ ...booking, status: 'CANCELLED' });
     fixture.detectChanges(); expect(fixture.nativeElement.textContent).toContain('Annulée');
   });
+  it('explains that a pending request neither expires automatically nor blocks its dates', () => {
+    const fixture = TestBed.createComponent(BookingDetailComponent); fixture.detectChanges();
+    http.expectOne('/api/bookings/booking-1').flush({ ...booking, status: 'PENDING' }); fixture.detectChanges();
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('n’expire pas automatiquement');
+    expect(text).toContain('ne bloque pas les dates');
+    expect(text).not.toContain('Dates bloquées jusqu');
+    expect(text).not.toContain('Cette demande a expiré');
+  });
   it('does not render a booking when its server endpoint refuses access', () => {
     const fixture = TestBed.createComponent(BookingDetailComponent); fixture.detectChanges();
     http.expectOne('/api/bookings/booking-1').flush({}, { status: 404, statusText: 'Not Found' });

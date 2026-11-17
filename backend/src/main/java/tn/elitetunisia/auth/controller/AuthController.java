@@ -7,7 +7,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,12 +35,15 @@ public class AuthController {
     private final AuthService authService;
     private final AccountService accounts;
     private final boolean secureCookies;
+    private final Duration refreshCookieMaxAge;
 
     public AuthController(AuthService authService, AccountService accounts,
-            @Value("${app.security.secure-cookies}") boolean secureCookies) {
+            @Value("${app.security.secure-cookies}") boolean secureCookies,
+            @Value("${app.security.jwt.refresh-token-days}") long refreshTokenDays) {
         this.authService = authService;
         this.accounts = accounts;
         this.secureCookies = secureCookies;
+        this.refreshCookieMaxAge = Duration.ofDays(refreshTokenDays);
     }
 
     @PostMapping("/register")
@@ -64,8 +66,8 @@ public class AuthController {
 
     @PostMapping("/refresh")
     @Operation(summary = "Renouveler les jetons de session")
-    public AuthResponse refresh(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken,
-            HttpServletResponse response, HttpServletRequest servletRequest) {
+    public AuthResponse refresh(HttpServletResponse response, HttpServletRequest servletRequest) {
+        String refreshToken = readRefreshCookie(servletRequest);
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new InvalidRefreshTokenException();
         }
@@ -76,9 +78,8 @@ public class AuthController {
 
     @PostMapping("/logout")
     @Operation(summary = "Révoquer la session de renouvellement")
-    public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken,
-            HttpServletResponse response, HttpServletRequest servletRequest) {
-        authService.logout(refreshToken, servletRequest.getRemoteAddr());
+    public ResponseEntity<Void> logout(HttpServletResponse response, HttpServletRequest servletRequest) {
+        authService.logout(readRefreshCookie(servletRequest), servletRequest.getRemoteAddr());
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString());
         return ResponseEntity.noContent().build();
     }
@@ -89,8 +90,21 @@ public class AuthController {
         return accounts.current(authentication.getName());
     }
 
+    /** Lit la valeur brute : @CookieValue décode en URI et lève une 500 sur un pourcentage invalide. */
+    private static String readRefreshCookie(HttpServletRequest request) {
+        if (request.getCookies() == null) {
+            return null;
+        }
+        for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+            if (REFRESH_COOKIE.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
+    }
+
     private void setRefreshCookie(HttpServletResponse response, String value) {
-        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(value, Duration.ofDays(30)).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(value, refreshCookieMaxAge).toString());
     }
 
     private ResponseCookie refreshCookie(String value, Duration maxAge) {

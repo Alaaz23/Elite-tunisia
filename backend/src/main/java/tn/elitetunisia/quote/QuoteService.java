@@ -99,7 +99,7 @@ public class QuoteService {
         if (quote.getStatus() != QuoteStatus.SENT) throw new QuoteException("INVALID_QUOTE_TRANSITION", "Seul un devis envoyé peut recevoir une réponse.");
         if (action.equals("accept")) {
             if (!quote.coherentWith(quote.getBooking())) throw new QuoteException("QUOTE_BOOKING_CHANGED", "La demande a changé depuis l'envoi du devis.");
-            var availability = bookingService.availability(quote.getVehicleId(), quote.getStartDateTime(), quote.getEndDateTime());
+            var availability = bookingService.availability(quote.getVehicleId(), quote.getStartDateTime(), quote.getEndDateTime(), quote.getBooking().getId());
             if (!availability.available()) throw new QuoteException("QUOTE_VEHICLE_UNAVAILABLE", "Le véhicule n'est plus disponible. Contactez l'agence.");
             quote.transition(QuoteStatus.ACCEPTED); recordEvent(quote, owner, "QUOTE_ACCEPTED", null, ip);
         } else if (action.equals("reject")) { quote.transition(QuoteStatus.REJECTED); recordEvent(quote, owner, "QUOTE_REJECTED", message, ip); }
@@ -145,13 +145,16 @@ public class QuoteService {
             quote.transition(QuoteStatus.EXPIRED); quotes.flush(); recordEvent(quote, null, "QUOTE_EXPIRED", null, null);
         }
     }
+    // Ordre global Vehicle → Booking → Quote : la réservation est verrouillée avant la ligne du devis.
     private QuoteEntity lock(UUID id, UUID owner) {
         QuoteEntity observed = (owner == null ? quotes.findById(id) : quotes.findByIdAndCustomerId(id, owner)).orElseThrow(this::notFound);
         bookingService.lockForCommercialOperation(observed.getBooking().getId());
+        QuoteEntity locked = quotes.findLockedById(observed.getId()).orElseThrow(this::notFound);
         quotes.flush();
-        entityManager.refresh(observed);
-        return observed;
+        entityManager.refresh(locked, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        return locked;
     }
+
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
     private void requirePending(BookingEntity booking) { if (booking.getStatus() != BookingStatus.PENDING) throw new QuoteException("QUOTE_BOOKING_INVALID", "La demande doit être en attente."); }
     private void requireLatest(QuoteEntity quote) {

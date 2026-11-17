@@ -21,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -71,6 +72,11 @@ public class SecurityConfig {
                 // response, so a concurrent request could erase the cookie between the token fetch and a mutation (403).
                 .sessionAuthenticationStrategy((authentication, request, response) -> { }))
                 .cors(cors -> { })
+                // Report-Only : aucun endpoint de rapport n'existe encore, la CSP ne bloque donc rien ; le passage en mode bloquant est une étape séparée.
+                .headers(headers -> headers
+                    .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'").reportOnly())
+                    .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                    .permissionsPolicy(permissions -> permissions.policy("camera=(), microphone=(), geolocation=(), payment=(), usb=()")))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                 .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
@@ -86,6 +92,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/services", "/api/admin/services/**").hasAllAuthorities("admin:access", "services:manage")
                 .requestMatchers("/api/admin/**").hasAuthority("admin:access")
                 .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
+                .requestMatchers("/api/partner/**").hasAllAuthorities("ROLE_PARTNER", "partner-portal:read")
                         .anyRequest().authenticated())
             .exceptionHandling(exceptions -> exceptions
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))

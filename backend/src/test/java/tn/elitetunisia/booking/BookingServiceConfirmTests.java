@@ -22,7 +22,8 @@ public class BookingServiceConfirmTests {
     tn.elitetunisia.common.pricing.RentalPricingService pricing;
     tn.elitetunisia.quote.QuoteRepository quotes;
     BookingOperationRepository operations;
-    BookingService service;
+    tn.elitetunisia.partner.GuaranteeRepository guarantees;
+    tn.elitetunisia.payment.PaymentRepository payments;    BookingService service;
 
     @BeforeEach
     public void setup() {
@@ -34,7 +35,10 @@ public class BookingServiceConfirmTests {
         pricing = mock(tn.elitetunisia.common.pricing.RentalPricingService.class);
         quotes = mock(tn.elitetunisia.quote.QuoteRepository.class);
         operations = mock(BookingOperationRepository.class);
-        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations);
+        guarantees = mock(tn.elitetunisia.partner.GuaranteeRepository.class);
+        payments = mock(tn.elitetunisia.payment.PaymentRepository.class);
+        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations,
+                guarantees, payments);
         // inject mock EntityManager
         jakarta.persistence.EntityManager em = mock(jakarta.persistence.EntityManager.class);
         try { java.lang.reflect.Field f = BookingService.class.getDeclaredField("entityManager"); f.setAccessible(true); f.set(service, em); } catch (Exception e) { throw new RuntimeException(e); }
@@ -65,11 +69,19 @@ public class BookingServiceConfirmTests {
         when(bookings.findLocked(id)).thenReturn(Optional.of(booking));
         when(bookings.findById(id)).thenReturn(Optional.of(booking));
         when(vehicles.findLocked(vehicleId)).thenReturn(Optional.of(vehicle));
-        when(bookings.overlaps(vehicleId, booking.getStartDateTime(), booking.getEndDateTime(), BookingService.BLOCKING, id)).thenReturn(0L);
+        var end = start.plusSeconds(3600);
+        when(bookings.countBlocking(eq(vehicleId), eq(start), eq(end), eq(id))).thenReturn(0L);
+        var guaranteeId = UUID.randomUUID();
+        var guarantee = mock(tn.elitetunisia.partner.GuaranteeEntity.class);
+        when(guarantee.getId()).thenReturn(guaranteeId);
+        when(booking.getGuaranteeId()).thenReturn(guaranteeId);
+        when(guarantees.findCovering(eq(vehicleId), any(), eq(start), eq(end)))
+                .thenReturn(java.util.List.of(guarantee));
         tn.elitetunisia.quote.QuoteEntity quote = mock(tn.elitetunisia.quote.QuoteEntity.class);
         when(quotes.findFirstByBookingIdOrderByVersionDesc(id)).thenReturn(Optional.of(quote));
         when(quote.getStatus()).thenReturn(tn.elitetunisia.quote.QuoteStatus.ACCEPTED);
         when(quote.coherentWith(booking)).thenReturn(true);
+        when(payments.existsByQuote_IdAndStatusIn(any(), any())).thenReturn(true);
         // perform
         var summary = service.transition(id, BookingStatus.CONFIRMED, UUID.randomUUID(), "127.0.0.1");
         assertNotNull(summary);
@@ -94,7 +106,7 @@ public class BookingServiceConfirmTests {
         when(bookings.findLocked(id)).thenReturn(Optional.of(booking));
         when(bookings.findById(id)).thenReturn(Optional.of(booking));
         when(vehicles.findLocked(vehicleId)).thenReturn(Optional.of(vehicle));
-        when(bookings.overlaps(vehicleId, booking.getStartDateTime(), booking.getEndDateTime(), BookingService.BLOCKING, id)).thenReturn(1L);
+        when(bookings.countBlocking(eq(vehicleId), eq(start), eq(start.plusSeconds(3600)), eq(id))).thenReturn(1L);
         assertEquals("VEHICLE_NOT_AVAILABLE", assertThrows(BookingException.class, () -> service.transition(id, BookingStatus.CONFIRMED, UUID.randomUUID(), "127.0.0.1")).getCode());
         verifyNoInteractions(events, audit);
     }

@@ -8,6 +8,7 @@ import tn.elitetunisia.vehicle.VehicleRepository;
 import tn.elitetunisia.vehicle.VehicleStatus;
 import tn.elitetunisia.common.audit.AuditService;
 import tn.elitetunisia.invoice.InvoiceService;
+import tn.elitetunisia.billing.BillingRequestService;
 import java.util.List;
 
 @Service
@@ -18,22 +19,26 @@ public class BookingOperationService {
     private final AuditService audit;
     private final BookingEventRepository events;
     private final InvoiceService invoices;
+    private final BookingService bookingService;
+    private final BillingRequestService billing;
 
     public BookingOperationService(BookingOperationRepository ops, BookingRepository bookings, VehicleRepository vehicles,
-            AuditService audit, BookingEventRepository events, InvoiceService invoices) {
+            AuditService audit, BookingEventRepository events, InvoiceService invoices, BookingService bookingService,
+            BillingRequestService billing) {
         this.ops = ops; this.bookings = bookings; this.vehicles = vehicles; this.audit = audit;
-        this.events = events; this.invoices = invoices;
+        this.events = events; this.invoices = invoices; this.bookingService = bookingService; this.billing = billing;
     }
 
     @Transactional
     public BookingOperationEntity recordPickup(UUID bookingId, UUID actorId, Integer odometerStart, Integer fuelStart) {
-        var booking = bookings.findLocked(bookingId).orElseThrow(() -> new BookingException("BOOKING_NOT_FOUND", "Booking not found"));
-        if (booking.getStatus() != BookingStatus.CONFIRMED) throw new BookingException("INVALID_OPERATION", "Booking must be CONFIRMED to pickup.");
-        validateMeterAndFuel(odometerStart, fuelStart);
+        var booking = bookingService.lockForOperation(bookingId);
 
-        // idempotence: if a pickup already exists for this booking, return it
+        // idempotence avant tout contrôle de statut : un pickup déjà enregistré est renvoyé tel quel
         List<BookingOperationEntity> existing = ops.findByBookingIdOrderByCreatedAtAsc(bookingId);
         for (var e : existing) if ("PICKUP".equals(e.getAction())) return e;
+
+        if (booking.getStatus() != BookingStatus.CONFIRMED) throw new BookingException("INVALID_OPERATION", "Booking must be CONFIRMED to pickup.");
+        validateMeterAndFuel(odometerStart, fuelStart);
 
         // set vehicle status to RENTED and validate vehicle
         var vehicle = vehicles.findLocked(booking.getVehicle().getId()).orElseThrow(() -> new BookingException("VEHICLE_NOT_FOUND", "Vehicle not found"));
@@ -55,15 +60,15 @@ public class BookingOperationService {
         events.saveAndFlush(new BookingEventEntity(bookingId, actorId, "BOOKING_PICKUP", previousStatus,
                 BookingStatus.IN_PROGRESS, java.time.Instant.now()));
 
-        // audit
-        try { audit.recordAudit(actorId, "BOOKING_PICKUP", "BOOKING", bookingId, null, "SUCCESS"); } catch (Exception ignore) {}
+        // obligatoire et atomique avec la transition : une erreur d'audit annule l'opération
+        audit.recordAudit(actorId, "BOOKING_PICKUP", "BOOKING", bookingId, null, "SUCCESS");
 
         return op;
     }
 
     @Transactional
     public BookingOperationEntity recordReturn(UUID bookingId, UUID actorId, Integer odometerEnd, Integer fuelEnd, String damages, BigDecimal extraCharges) {
-        var booking = bookings.findLocked(bookingId).orElseThrow(() -> new BookingException("BOOKING_NOT_FOUND", "Booking not found"));
+        var booking = bookingService.lockForOperation(bookingId);
         validateMeterAndFuel(odometerEnd, fuelEnd);
         if (damages != null && damages.length() > 5000) throw new BookingException("INVALID_DATA", "Damage notes exceed the allowed length.");
         if (extraCharges != null && (extraCharges.signum() < 0 || extraCharges.scale() > 3 || extraCharges.precision() - extraCharges.scale() > 9)) {
@@ -79,6 +84,9 @@ public class BookingOperationService {
         // idempotence: if a return already exists, return it
         for (var e : existing) if ("RETURN".equals(e.getAction())) return e;
 
+        // contrôle explicite avant toute écriture ; même code que BookingEntity.transition
+        if (booking.getStatus() != BookingStatus.IN_PROGRESS) throw new BookingException("INVALID_STATUS_TRANSITION", "Cette action n'est pas autorisée pour le statut actuel.");
+
         if (pickup.getOdometerStart() != null && odometerEnd < pickup.getOdometerStart()) throw new BookingException("INVALID_DATA", "Return odometer cannot be less than pickup.");
 
         var vehicle = vehicles.findLocked(booking.getVehicle().getId()).orElseThrow(() -> new BookingException("VEHICLE_NOT_FOUND", "Vehicle not found"));
@@ -90,15 +98,12 @@ public class BookingOperationService {
         ops.saveAndFlush(op);
         if (extraCharges != null && extraCharges.signum() > 0) invoices.createReturnChargeInvoice(booking, extraCharges);
 
-        // transition booking to COMPLETED
-        BookingStatus previousStatus = booking.getStatus();
-        booking.transition(BookingStatus.COMPLETED, java.time.Instant.now());
-        bookings.flush();
-        events.saveAndFlush(new BookingEventEntity(bookingId, actorId, "BOOKING_RETURN", previousStatus,
-                BookingStatus.COMPLETED, java.time.Instant.now()));
+        // passage à COMPLETED uniquement via BookingService (vérifie le retour, événement et audit atomiques)
+        bookingService.completeAfterReturn(booking, actorId, "BOOKING_RETURN");
 
-        // audit
-        try { audit.recordAudit(actorId, "BOOKING_RETURN", "BOOKING", bookingId, null, "SUCCESS"); } catch (Exception ignore) {}
+        // demande de facture principale : enregistrée dans la même transaction que le retour (outbox),
+        // générée ensuite par BillingRequestWorker. Un échec de facturation ne bloque jamais le retour.
+        billing.enqueueMainInvoice(bookingId, actorId);
 
         return op;
     }

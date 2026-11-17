@@ -15,10 +15,26 @@ $env:PGPASSWORD = '<mot de passe>'
 # Test de restauration : base jetable, comparaison du nombre de lignes par table, puis suppression
 .\scripts\db-restore.ps1 -BackupFile D:\sauvegardes\elite_tunisia_<horodatage>.dump -TargetDatabase elite_restore_check -User elite -CompareWith elite_tunisia -DropAfter
 ```
-Équivalent Linux (serveur de production) : `pg_dump -Fc --no-owner --no-privileges -h … -U … -d … -f fichier.dump`, `sha256sum`, puis `createdb` et `pg_restore --no-owner --exit-on-error -d <nouvelle base> fichier.dump`.
+Équivalent Linux : [`scripts/db-backup.sh`](../scripts/db-backup.sh) (bash, mêmes garde-fous : refus d'écraser un fichier, `pg_restore --list`, somme `sha256sum`) :
+```bash
+PGPASSWORD='<mot de passe>' ./scripts/db-backup.sh -d elite_tunisia -u elite -o /var/backups/elite -h 127.0.0.1 -p 5432
+sha256sum -c /var/backups/elite/elite_tunisia_<horodatage>.dump.sha256
+```
+La restauration Linux n'est pas scriptée : `createdb <nouvelle base>` puis `pg_restore --no-owner --exit-on-error -d <nouvelle base> fichier.dump`.
 
-## Validation réalisée (2026-10-30)
-Sur un cluster PostgreSQL 18 temporaire (127.0.0.1:15432, répertoire de données dans `%TEMP%`) : sauvegarde de `et_test_db`, somme de contrôle valide, restauration dans `et_restore_check` jusqu'à Flyway V20, comptage identique sur 39 tables, base supprimée ; refus vérifiés pour une base cible existante et pour un serveur distant. La base `et_test_db` ne contenait que les données laissées par les tests : **la restauration n'a pas été éprouvée sur un volume représentatif**, ni sur la base de préproduction.
+## Validation réalisée (2026-11-08)
+Cluster PostgreSQL 18.3 isolé (127.0.0.1:15432, données dans `%LOCALAPPDATA%\EliteTunisiaTools\pg-test-cluster`). Base source dédiée `et_release_check` : schéma Flyway V1 à V32 appliqué au démarrage du backend en profil `prod`, 45 tables, 164 lignes, 1 compte de test.
+
+- Sauvegarde Linux `scripts/db-backup.sh -d et_release_check` : code retour 0, fichier de 128 728 octets, SHA-256 recalculé indépendamment identique à celui du `.sha256`, `pg_restore --list` code 0 (45 définitions de tables).
+- Restauration `scripts/db-restore.ps1` dans la base neuve `et_restore_validation` (inexistante avant), code 0, SHA-256 vérifié avant restauration.
+- Comparaison source / restaurée : 45/45 tables, colonnes identiques (empreinte MD5), 164 lignes identiques, empreinte de contenu MD5 identique table par table, historique Flyway identique (32 succès, max V32), compte de test présent des deux côtés.
+- Écart cosmétique : les CHECK et les prédicats d'index partiels sont reconstruits avec une écriture différente (`ARRAY[...]::text[]` contre `ARRAY[('X'::character varying)::text, ...]`). Les listes de valeurs sont identiques. Non vérifié par un test de comportement.
+
+Scénarios d'échec : voir [`FINAL-PROJECT-VALIDATION.md`](./FINAL-PROJECT-VALIDATION.md), section J.
+
+Corrections issues de ces tests : `db-backup.sh` et `db-backup.ps1` rejettent désormais les valeurs composées uniquement d'espaces ; `db-backup.ps1` écrit le `.sha256` en UTF-8 sans BOM avec fin de ligne LF (une fin CRLF faisait échouer `sha256sum -c` sous Linux).
+
+Limites : base source de test très petite (pas de volume représentatif) ; statistiques `pg_stat` non fiables (`n_live_tup` à 0 sur la source) ; restauration validée sur PostgreSQL 18 uniquement.
 
 ## À faire avant la production
 - Planifier les sauvegardes (fréquence et rétention à décider), les stocker hors du serveur de base de données et les chiffrer au repos.

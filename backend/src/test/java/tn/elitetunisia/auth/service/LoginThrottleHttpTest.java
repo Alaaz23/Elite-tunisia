@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import tn.elitetunisia.PostgresTestHelper;
+import tn.elitetunisia.TestIdentities;
 
 /** Parcours HTTP réel : l'échec répété de connexion est freiné, sans bloquer d'autres comptes ni d'autres adresses. */
 @SpringBootTest(properties = "app.security.login-throttle.max-failures=3")
@@ -38,7 +39,7 @@ class LoginThrottleHttpTest {
     }
 
     private String register() throws Exception {
-        String email = "throttle-" + UUID.randomUUID() + "@example.test";
+        String email = TestIdentities.email("throttle");
         mvc.perform(post("/api/auth/register").with(SecurityMockMvcRequestPostProcessors.csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content(String.format("{\"firstName\":\"Throttle\",\"lastName\":\"Client\",\"email\":\"%s\",\"phone\":\"+216 20 123 456\",\"password\":\"%s\",\"confirmPassword\":\"%s\"}", email, PASSWORD, PASSWORD)))
                 .andExpect(status().isCreated());

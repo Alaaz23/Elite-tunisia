@@ -14,6 +14,9 @@ app:
     secure-cookies: true
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  storage:
+    # Sans valeur explicite, les fichiers seraient écrits dans un répertoire utilisateur non persistant.
+    local-path: ${STORAGE_LOCAL_PATH}
 
 # La description de l'API (routes, schémas) ne doit pas être publique en production.
 springdoc:

@@ -12,6 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 import tn.elitetunisia.catalogue.dto.PagedResponse;
 import tn.elitetunisia.customer.CustomerRepository;
 import tn.elitetunisia.common.audit.AuditService;
+import tn.elitetunisia.partner.GuaranteeEntity;
+import tn.elitetunisia.partner.GuaranteeRepository;
+import tn.elitetunisia.partner.GuaranteeStatus;
 import tn.elitetunisia.vehicle.*;
 
 @Service
@@ -27,17 +30,22 @@ public class BookingService {
     private final tn.elitetunisia.common.pricing.RentalPricingService pricing;
     private final tn.elitetunisia.quote.QuoteRepository quotes;
     private final BookingOperationRepository operations;
+    private final GuaranteeRepository guarantees;
+    private final tn.elitetunisia.payment.PaymentRepository payments;
     @jakarta.persistence.PersistenceContext private jakarta.persistence.EntityManager entityManager;
     public BookingService(BookingRepository bookings, VehicleRepository vehicles, CustomerRepository customers,
             BookingEventRepository events, AuditService audit, JdbcTemplate jdbc,
             @Value("${app.booking.time-zone:Africa/Tunis}") String zone,
             tn.elitetunisia.common.pricing.RentalPricingService pricing, tn.elitetunisia.quote.QuoteRepository quotes,
-            BookingOperationRepository operations) {
+            BookingOperationRepository operations, GuaranteeRepository guarantees,
+            tn.elitetunisia.payment.PaymentRepository payments) {
         this.bookings = bookings; this.vehicles = vehicles; this.customers = customers; this.events = events;
         this.audit = audit; this.jdbc = jdbc; this.businessZone = ZoneId.of(zone);
         this.pricing = pricing;
         this.quotes = quotes;
         this.operations = operations;
+        this.guarantees = guarantees;
+        this.payments = payments;
     }
     public String timeZone() { return businessZone.getId(); }
     public void validateDates(Instant start, Instant end) {
@@ -48,11 +56,17 @@ public class BookingService {
     }
     @Transactional(readOnly = true)
     public AvailabilityResponse availability(UUID vehicleId, Instant start, Instant end) {
+        return availability(vehicleId, start, end, null);
+    }
+    // excludedBookingId : la réservation elle-même (ex. son hold PENDING lors de l'acceptation d'un devis) ne doit pas se bloquer.
+    @Transactional(readOnly = true)
+    public AvailabilityResponse availability(UUID vehicleId, Instant start, Instant end, UUID excludedBookingId) {
         validateDates(start, end);
         VehicleEntity vehicle = vehicle(vehicleId, false);
         if (!rentable(vehicle)) return new AvailabilityResponse(false, "VEHICLE_NOT_AVAILABLE");
-        return bookings.overlaps(vehicleId, start, end, BLOCKING, null) == 0
-                ? new AvailabilityResponse(true, null) : new AvailabilityResponse(false, "VEHICLE_ALREADY_BOOKED");
+        if (bookings.countBlocking(vehicleId, start, end, excludedBookingId) > 0) return new AvailabilityResponse(false, "VEHICLE_ALREADY_BOOKED");
+        return coveringGuarantees(vehicle, start, end).isEmpty()
+                ? new AvailabilityResponse(false, "VEHICLE_NOT_AVAILABLE") : new AvailabilityResponse(true, null);
     }
     @Transactional(readOnly = true)
     public BookingPreview preview(BookingRequest request) {
@@ -75,11 +89,11 @@ public class BookingService {
         validateDates(request.startDateTime(), request.endDateTime());
         var customer = customers.findById(customerId).orElseThrow(() -> new BookingException("BOOKING_ACCESS_DENIED", "Un compte client est requis."));
         VehicleEntity vehicle = vehicle(request.vehicleId(), true);
-        requireAvailable(vehicle, request.startDateTime(), request.endDateTime(), null);
+        GuaranteeEntity guarantee = requireAvailable(vehicle, request.startDateTime(), request.endDateTime(), null).get(0);
         Long sequence = jdbc.queryForObject("SELECT nextval('booking_reference_seq')", Long.class);
         String reference = "ET-" + Year.now(businessZone) + "-" + String.format(Locale.ROOT, "%06d", sequence);
         BookingEntity booking = bookings.saveAndFlush(new BookingEntity(reference, customer, vehicle, request,
-            price(vehicle, request.startDateTime(), request.endDateTime())));
+            price(vehicle, request.startDateTime(), request.endDateTime()), guarantee.getId()));
         recordEvent(booking, customerId, "BOOKING_CREATED", null, ip);
         return summary(booking, false, true);
     }
@@ -123,6 +137,9 @@ public class BookingService {
         if (booking.getStatus() == target) {
             return summary(booking, true, true);
         }
+        if (target == BookingStatus.EXPIRED) {
+            throw new BookingException("INVALID_STATUS_TRANSITION", "Les demandes en attente n'expirent pas automatiquement.");
+        }
         if (!booking.getStatus().canTransitionTo(target)) {
             throw new BookingException("INVALID_STATUS_TRANSITION", "Cette réservation ne peut pas changer vers cet état.");
         }
@@ -135,13 +152,19 @@ public class BookingService {
         if (target == BookingStatus.CONFIRMED) {
             if (!booking.getStatus().canTransitionTo(target)) throw new BookingException("INVALID_STATUS_TRANSITION", "Cette réservation ne peut pas être confirmée.");
             validateDates(booking.getStartDateTime(), booking.getEndDateTime());
-            requireAvailable(booking.getVehicle(), booking.getStartDateTime(), booking.getEndDateTime(), id);
-            var proposal = quotes.findFirstByBookingIdOrderByVersionDesc(id);
-            if (proposal.isPresent()) {
-                var quote = proposal.get();
-                if (quote.getStatus() != tn.elitetunisia.quote.QuoteStatus.ACCEPTED || !quote.coherentWith(booking)) throw new BookingException("QUOTE_NOT_ACCEPTED", "La version actuelle du devis doit être acceptée et cohérente avec la demande.");
-                booking.applyCommercialPrice(quote);
+            // Vérification définitive du chevauchement : seules les réservations CONFIRMED/IN_PROGRESS bloquent.
+            var guarantees = requireAvailable(booking.getVehicle(), booking.getStartDateTime(), booking.getEndDateTime(), id);
+            if (guarantees.stream().noneMatch(guarantee -> guarantee.getId().equals(booking.getGuaranteeId()))) {
+                throw new BookingException("VEHICLE_NOT_AVAILABLE", "La garantie de cette réservation ne couvre plus la période demandée.");
             }
+            var proposal = quotes.findFirstByBookingIdOrderByVersionDesc(id);
+            if (proposal.isEmpty()) throw new BookingException("PAYMENT_REQUIRED", "Le paiement intégral du devis est requis avant la confirmation.");
+            var quote = proposal.get();
+            if (quote.getStatus() != tn.elitetunisia.quote.QuoteStatus.ACCEPTED || !quote.coherentWith(booking)) throw new BookingException("QUOTE_NOT_ACCEPTED", "La version actuelle du devis doit être acceptée et cohérente avec la demande.");
+            if (!payments.existsByQuote_IdAndStatusIn(quote.getId(), List.of(tn.elitetunisia.payment.PaymentStatus.CAPTURED))) {
+                throw new BookingException("PAYMENT_REQUIRED", "Le paiement intégral du devis est requis avant la confirmation.");
+            }
+            booking.applyCommercialPrice(quote);
         }
         change(booking, target, actor, ip);
         return summary(booking, true, true);
@@ -163,7 +186,7 @@ public class BookingService {
         bookings.flush();
         String action = switch (target) {
             case CONFIRMED -> "BOOKING_CONFIRMED"; case REJECTED -> "BOOKING_REJECTED";
-            case CANCELLED -> "BOOKING_CANCELLED"; default -> "BOOKING_UPDATED";
+            case CANCELLED -> "BOOKING_CANCELLED"; case EXPIRED -> "BOOKING_HOLD_EXPIRED"; default -> "BOOKING_UPDATED";
         };
         recordEvent(booking, actor, action, previous, ip);
     }
@@ -180,6 +203,23 @@ public class BookingService {
     }
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public BookingEntity lockForCommercialOperation(UUID id) { return locked(id); }
+    // Ordre de verrouillage global : Vehicle → Booking → (Quote, Driver, Transfer). Voir docs/architecture/booking-lock-order.md.
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public BookingEntity lockForOperation(UUID id) { return locked(id); }
+    // Unique chemin vers COMPLETED pour une opération de retour : même règle que transition() (retour enregistré requis).
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void completeAfterReturn(BookingEntity booking, UUID actor, String action) {
+        BookingStatus previous = booking.getStatus();
+        if (!previous.canTransitionTo(BookingStatus.COMPLETED)) {
+            throw new BookingException("INVALID_STATUS_TRANSITION", "Cette réservation ne peut pas changer vers cet état.");
+        }
+        if (!operations.existsByBookingIdAndAction(booking.getId(), "RETURN")) {
+            throw new BookingException("INVALID_OPERATION", "Record the vehicle return before completing the booking.");
+        }
+        booking.transition(BookingStatus.COMPLETED, Instant.now());
+        bookings.flush();
+        recordEvent(booking, actor, action, previous, null);
+    }
     private BookingEntity own(UUID id, UUID owner) { return bookings.findByIdAndCustomerId(id, owner).orElseThrow(this::notFound); }
     private BookingEntity find(UUID id) { return bookings.findById(id).orElseThrow(this::notFound); }
     private BookingException notFound() { return new BookingException("BOOKING_NOT_FOUND", "La réservation demandée est introuvable."); }
@@ -190,10 +230,19 @@ public class BookingService {
     private boolean rentable(VehicleEntity vehicle) {
         return vehicle.getStatus() == VehicleStatus.AVAILABLE && vehicle.getBrand().isActive() && vehicle.getCategory().isActive();
     }
-    private void requireAvailable(VehicleEntity vehicle, Instant start, Instant end, UUID excluded) {
-        if (!rentable(vehicle) || bookings.overlaps(vehicle.getId(), start, end, BLOCKING, excluded) > 0) {
+    // Retourne les garanties ACTIVE couvrant intégralement la période. Vide = aucune réservation possible.
+    private List<GuaranteeEntity> coveringGuarantees(VehicleEntity vehicle, Instant start, Instant end) {
+        return guarantees.findCovering(vehicle.getId(), GuaranteeStatus.ACTIVE, start, end);
+    }
+    private List<GuaranteeEntity> requireAvailable(VehicleEntity vehicle, Instant start, Instant end, UUID excluded) {
+        if (!rentable(vehicle) || bookings.countBlocking(vehicle.getId(), start, end, excluded) > 0) {
             throw new BookingException("VEHICLE_NOT_AVAILABLE", "Ce véhicule n'est pas disponible pour cette période.");
         }
+        var covering = coveringGuarantees(vehicle, start, end);
+        if (covering.isEmpty()) {
+            throw new BookingException("VEHICLE_NOT_AVAILABLE", "Aucune garantie active ne couvre intégralement cette période.");
+        }
+        return covering;
     }
     private String name(VehicleEntity vehicle) { return vehicle.getBrand().getName() + " " + vehicle.getModel(); }
     private BookingSummary summary(BookingEntity booking, boolean admin, boolean history) {

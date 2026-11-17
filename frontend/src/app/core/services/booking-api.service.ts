@@ -3,7 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { Temporal } from '@js-temporal/polyfill';
 import { API_BASE_URL } from '../config/api.config';
 import { CataloguePage } from './catalogue-api.service';
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED' | 'IN_PROGRESS' | 'COMPLETED';
+export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED' | 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED';
 export interface BookingInput { vehicleId: string; startDateTime: string; endDateTime: string; pickupLocation: string; dropoffLocation: string; customerNote: string | null; }
 export interface BookingPreview { vehicleId: string; vehicleName: string; startDateTime: string; endDateTime: string; numberOfDays: number; basePrice: number; additionalCharges: number; discount: number; tax: number; totalAmount: number; currency: string; businessTimeZone: string; }
 export interface Booking extends BookingPreview {
@@ -54,5 +54,5 @@ export function bookingMoney(amount: number, currency: string): string {
   return new Intl.NumberFormat('fr-TN', { style: 'currency', currency, maximumFractionDigits: 3 }).format(amount);
 }
 export function bookingStatus(status: BookingStatus): string {
-  return ({ PENDING: 'En attente', CONFIRMED: 'Confirmée', REJECTED: 'Refusée', CANCELLED: 'Annulée', IN_PROGRESS: 'En cours', COMPLETED: 'Terminée' })[status];
+  return ({ PENDING: 'En attente', CONFIRMED: 'Confirmée', REJECTED: 'Refusée', CANCELLED: 'Annulée', IN_PROGRESS: 'En cours', COMPLETED: 'Terminée', EXPIRED: 'Expirée' })[status];
 }

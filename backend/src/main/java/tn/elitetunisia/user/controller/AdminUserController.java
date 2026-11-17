@@ -2,7 +2,6 @@ package tn.elitetunisia.user.controller;
 
 import java.util.UUID;
 
-import org.springframework.data.domain.Page;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import tn.elitetunisia.catalogue.dto.PagedResponse;
 import tn.elitetunisia.user.dto.CreateEmployeeRequest;
 import tn.elitetunisia.user.dto.UpdateEmployeeRequest;
 import tn.elitetunisia.user.dto.UpdateUserStatusRequest;
@@ -37,7 +37,7 @@ public class AdminUserController {
     }
 
     @GetMapping
-    public Page<UserSummary> list(@RequestParam(defaultValue = "0") int page,
+    public PagedResponse<UserSummary> list(@RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
         return adminUsers.list(page, size);
     }

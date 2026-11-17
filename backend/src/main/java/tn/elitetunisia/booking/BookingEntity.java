@@ -35,15 +35,19 @@ public class BookingEntity {
     @UpdateTimestamp @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     @Column(name = "confirmed_at") private Instant confirmedAt;
     @Column(name = "cancelled_at") private Instant cancelledAt;
+    @Column(name = "hold_expires_at") private Instant holdExpiresAt;
+    @Column(name = "guarantee_id") private UUID guaranteeId;
 
     protected BookingEntity() { }
-    public BookingEntity(String reference, CustomerEntity customer, VehicleEntity vehicle, BookingRequest request, BookingPreview price) {
+    public BookingEntity(String reference, CustomerEntity customer, VehicleEntity vehicle, BookingRequest request, BookingPreview price,
+                         UUID guaranteeId) {
         this.id = UUID.randomUUID(); this.reference = reference; this.customer = customer; this.vehicle = vehicle;
         this.startDateTime = request.startDateTime(); this.endDateTime = request.endDateTime();
         this.pickupLocation = request.pickupLocation().trim(); this.dropoffLocation = request.dropoffLocation().trim();
         this.customerNote = request.customerNote(); this.status = BookingStatus.PENDING;
         this.dailyRate = vehicle.getPricePerDay(); this.basePrice = price.basePrice(); this.totalAmount = price.totalAmount();
         this.currency = price.currency(); this.numberOfDays = price.numberOfDays();
+        this.guaranteeId = guaranteeId;
     }
     public void transition(BookingStatus target, Instant now) {
         if (status == BookingStatus.CANCELLED && target == BookingStatus.CANCELLED) throw new BookingException("BOOKING_ALREADY_CANCELLED", "Cette réservation est déjà annulée.");
@@ -82,4 +86,6 @@ public class BookingEntity {
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getConfirmedAt() { return confirmedAt; }
     public Instant getCancelledAt() { return cancelledAt; }
+    public Instant getHoldExpiresAt() { return holdExpiresAt; }
+    public UUID getGuaranteeId() { return guaranteeId; }
 }

@@ -196,7 +196,7 @@ Rôles techniques prévus : `SUPER_ADMIN`, `MANAGER`, `AGENT`, `CONCIERGE`, `ACC
 
 Le parcours cible est : véhicule → service → dates → lieux → options → récapitulatif serveur → coordonnées client → demande/confirmation.
 
-Le système doit valider les dates, les champs obligatoires et la disponibilité au moment de l'enregistrement. Il doit refuser les chevauchements selon les statuts qui bloquent la flotte. Le choix des statuts bloquants, l'expiration d'une éventuelle pré-réservation et la confirmation automatique ou manuelle sont à décider avec l'agence.
+Le système doit valider les dates, les champs obligatoires et la disponibilité au moment de l'enregistrement. Il doit refuser les chevauchements selon les statuts qui bloquent la flotte. Règle définitive : `PENDING` ne bloque pas la disponibilité, n'expire pas automatiquement, et seuls `CONFIRMED` et `IN_PROGRESS` bloquent. La confirmation effectue le contrôle définitif de disponibilité.
 
 ### 4.3 Devis
 
@@ -314,7 +314,7 @@ Les sauvegardes, objectifs de disponibilité, hébergement, domaine, support, re
 - Entité juridique, coordonnées officielles et langues du site (français, anglais, arabe).
 - Devise, régime fiscal, règles comptables et format légal des factures.
 - Tarifs, durée minimale, caution, frais, options, remises et politique d'annulation.
-- Statuts qui bloquent la disponibilité, expiration des demandes en attente et politique de confirmation.
+- Statuts qui bloquent la disponibilité (`CONFIRMED`, `IN_PROGRESS`) et politique de confirmation. Aucune expiration des demandes en attente : décision métier définitive.
 - Processus de validation des permis et pièces d'identité; conservation des documents.
 - Matrice finale rôles/permissions et éventuelle séparation des responsabilités.
 - Prestataires email/SMS, stockage de fichiers et paiement compatibles avec l'activité tunisienne.

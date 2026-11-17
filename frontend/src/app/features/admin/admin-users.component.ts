@@ -5,6 +5,8 @@ import { API_BASE_URL } from '../../core/config/api.config';
 import { AuthService } from '../../core/auth/auth.service';
 import { ApiHttpError } from '../../core/models/api-http-error';
 
+const PAGE_SIZE = 25;
+
 interface RoleSummary {
   roleKey: string;
   displayName: string;
@@ -25,6 +27,8 @@ interface UserSummary {
 interface UserPage {
   content: UserSummary[];
   totalElements: number;
+  totalPages: number;
+  page: number;
 }
 
 @Component({
@@ -32,7 +36,7 @@ interface UserPage {
   imports: [ReactiveFormsModule],
   template: `
     <section class="users-page" aria-labelledby="users-title">
-      <header class="page-heading"><div><p class="eyebrow">ADMINISTRATION <span>/</span> ACCÈS</p><h1 id="users-title">Utilisateurs <em>internes.</em></h1><p>Comptes d’équipe, rôles et accès à la plateforme.</p></div><span class="count-label">{{ users().length }} comptes</span></header>
+      <header class="page-heading"><div><p class="eyebrow">ADMINISTRATION <span>/</span> ACCÈS</p><h1 id="users-title">Utilisateurs <em>internes.</em></h1><p>Comptes d’équipe, rôles et accès à la plateforme.</p></div>      <span class="count-label">{{ total() }} comptes</span></header>
       @if (errorMessage()) { <p class="alert alert-error" role="alert">{{ errorMessage() }}</p> }
       @if (successMessage()) { <p class="alert alert-success" role="status">{{ successMessage() }}</p> }
       <div class="users-layout">
@@ -50,6 +54,13 @@ interface UserPage {
                 </tr>
               }
             </tbody></table></div>
+                  @if (totalPages() > 1) {
+                    <nav class="pagination" aria-label="Pagination des utilisateurs">
+                      <button type="button" class="button button-secondary" [disabled]="loading() || page() === 0" (click)="load(page() - 1)">Précédent</button>
+                      <span>Page {{ page() + 1 }} / {{ totalPages() }}</span>
+                      <button type="button" class="button button-secondary" [disabled]="loading() || page() + 1 >= totalPages()" (click)="load(page() + 1)">Suivant</button>
+                    </nav>
+                  }
           }
         </section>
         <section class="editor" aria-labelledby="editor-title">
@@ -81,6 +92,7 @@ interface UserPage {
     .users-layout { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(280px,.8fr); gap:1.5rem; align-items:start; }
     .users-list { min-width:0; }
     .table-wrap { max-height:72vh; overflow:auto; }
+    .pagination { display:flex; align-items:center; justify-content:flex-end; gap:1rem; margin-top:1rem; font-size:.75rem; }
     td strong { font:500 .9rem var(--font-body); }
     td small { display:block; margin-top:.2rem; color:var(--color-muted); font-size:.72rem; }
     .status { display:inline-flex; align-items:center; gap:.45rem; color:var(--color-olive); font-size:.74rem; }
@@ -109,6 +121,9 @@ export class AdminUsersComponent implements OnInit {
   private readonly builder = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   protected readonly users = signal<UserSummary[]>([]);
+  protected readonly total = signal(0);
+  protected readonly totalPages = signal(0);
+  protected readonly page = signal(0);
   protected readonly roles = signal<RoleSummary[]>([]);
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -128,14 +143,18 @@ export class AdminUsersComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadRoles();
   }
 
-  protected load(): void {
+  protected load(page = 0): void {
     this.loading.set(true);
     this.errorMessage.set('');
-    this.http.get<UserPage>(`${this.baseUrl}/api/admin/users`, { params: new HttpParams().set('page', 0).set('size', 100) }).subscribe({
-      next: (page) => {
-        this.users.set(page.content);
+    this.http.get<UserPage>(`${this.baseUrl}/api/admin/users`, { params: new HttpParams().set('page', page).set('size', PAGE_SIZE) }).subscribe({
+      next: (result) => {
+        this.users.set(result.content);
+        this.total.set(result.totalElements);
+        this.totalPages.set(result.totalPages);
+        this.page.set(result.page);
         this.loading.set(false);
       },
       error: (error: unknown) => {
@@ -143,6 +162,9 @@ export class AdminUsersComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  private loadRoles(): void {
     this.http.get<RoleSummary[]>(`${this.baseUrl}/api/admin/roles`).subscribe({
       next: (roles) => {
         this.roles.set(roles.filter((role) => role.roleKey !== 'CUSTOMER'));
@@ -191,7 +213,7 @@ export class AdminUsersComponent implements OnInit {
         this.successMessage.set(id ? 'Les informations ont été mises à jour.' : 'Le compte employé a été créé.');
         this.saving.set(false);
         this.cancelEdit();
-        this.load();
+        this.load(id ? this.page() : 0);
       },
       error: (error: unknown) => {
         this.errorMessage.set(error instanceof ApiHttpError ? error.message : 'Impossible d’enregistrer cet utilisateur.');
@@ -204,7 +226,7 @@ export class AdminUsersComponent implements OnInit {
     this.http.patch<UserSummary>(`${this.baseUrl}/api/admin/users/${user.id}/status`, { enabled: user.status !== 'ACTIVE' }).subscribe({
       next: () => {
         this.successMessage.set(user.status === 'ACTIVE' ? 'Le compte a été désactivé.' : 'Le compte a été réactivé.');
-        this.load();
+        this.load(this.page());
       },
       error: (error: unknown) => this.errorMessage.set(error instanceof Error ? error.message : 'Impossible de modifier ce statut.'),
     });

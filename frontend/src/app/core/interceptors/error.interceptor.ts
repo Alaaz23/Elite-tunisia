@@ -1,43 +1,66 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { catchError, switchMap, throwError } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
 import { ApiHttpError } from '../models/api-http-error';
 
 export const errorInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
+  const router = inject(Router);
   return next(request).pipe(
   catchError((error: unknown) => {
     if (!(error instanceof HttpErrorResponse)) return throwError(() => error);
     if (error.status === 401 && request.headers.has('Authorization') && !request.url.includes('/api/auth/')) {
       return auth.refreshSession().pipe(
+        catchError(() => {
+          auth.clearSession();
+          redirectToLogin(router);
+          return throwError(() => new ApiHttpError(401, 'Votre session a expiré. Veuillez vous reconnecter.'));
+        }),
         switchMap((session) => {
           const headers: Record<string, string> = { Authorization: `Bearer ${session.accessToken}` };
           if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) {
             const csrfToken = auth.csrfHeaderToken();
             if (csrfToken) headers['X-XSRF-TOKEN'] = csrfToken;
           }
-          return next(request.clone({ setHeaders: headers, withCredentials: true }));
-        }),
-        catchError(() => {
-          auth.clearSession();
-          return throwError(() => new ApiHttpError(401, 'Votre session a expiré. Veuillez vous reconnecter.'));
+          return next(request.clone({ setHeaders: headers, withCredentials: true })).pipe(
+            catchError((retryError: unknown) => {
+              if (retryError instanceof HttpErrorResponse && retryError.status === 401) {
+                auth.clearSession();
+                redirectToLogin(router);
+              }
+              return throwError(() => toApiError(retryError, auth));
+            }),
+          );
         }),
       );
     }
-    if (error.status === 401) auth.clearSession();
-    const safeMessage = error.status === 0
-      ? 'Le service est momentanément indisponible. Réessayez dans quelques instants.'
-      : error.status >= 500
-        ? 'Une erreur est survenue. Veuillez réessayer.'
-        : error.status === 401
-          ? error.error?.detail === 'Votre compte a été désactivé.'
-            ? 'Votre compte a été désactivé.'
-            : 'Votre session a expiré ou vos identifiants sont incorrects.'
-          : error.status === 403
-            ? 'Vous n’avez pas les droits nécessaires pour accéder à cette page.'
-        : error.error?.detail ?? 'Vérifiez les informations saisies puis réessayez.';
-    return throwError(() => new ApiHttpError(error.status, safeMessage));
+    return throwError(() => toApiError(error, auth));
   }),
   );
 };
+
+function toApiError(error: unknown, auth: AuthService): unknown {
+  if (!(error instanceof HttpErrorResponse)) return error;
+  if (error.status === 401) auth.clearSession();
+  const safeMessage = error.status === 0
+    ? 'Le service est momentanément indisponible. Réessayez dans quelques instants.'
+    : error.status >= 500
+      ? 'Une erreur est survenue. Veuillez réessayer.'
+      : error.status === 401
+        ? error.error?.detail === 'Votre compte a été désactivé.'
+          ? 'Votre compte a été désactivé.'
+          : 'Votre session a expiré ou vos identifiants sont incorrects.'
+        : error.status === 403
+          ? 'Vous n’avez pas les droits nécessaires pour accéder à cette page.'
+          : error.error?.detail ?? 'Vérifiez les informations saisies puis réessayez.';
+  const code = typeof error.error?.code === 'string' ? error.error.code : undefined;
+  return new ApiHttpError(error.status, safeMessage, code);
+}
+
+function redirectToLogin(router: Router): void {
+  const current = router.url;
+  if (current.startsWith('/auth/')) return;
+  void router.navigate(['/auth/login'], { queryParams: { returnUrl: current } });
+}

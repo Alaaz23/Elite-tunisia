@@ -50,11 +50,25 @@ public class CustomerPaymentControllerMockMvcTest {
         UUID q = UUID.randomUUID(); UUID pid = UUID.randomUUID();
         when(accounts.current(eq("user@t"))).thenReturn(new tn.elitetunisia.user.dto.UserSummary(pid, null, null, "user@t", null, null, java.util.Set.of(), "ACTIVE"));
         var payment = new PaymentEntity(null, pid, new BigDecimal("100.00"), "TND", PaymentMethod.CARD, "k3");
-        payment.setTransactionRef("TX-1"); payment.setStatus(PaymentStatus.CAPTURED);
+        payment.setTransactionRef("TX-1"); payment.transitionTo(PaymentStatus.CAPTURED);
         when(svc.createForQuote(eq(q), eq(pid), any(), eq(PaymentMethod.CARD), eq("k3"))).thenReturn(payment);
 
         mvc.perform(post("/api/customer/quotes/" + q + "/payments").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("user@t").authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_CUSTOMER"), new org.springframework.security.core.authority.SimpleGrantedAuthority("payments:create"))).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":100.00,\"method\":\"CARD\",\"idempotencyKey\":\"k3\"}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CAPTURED"));
     }
+
+    @Test
+    public void quoteOwnedByAnotherCustomerIsNotFound() throws Exception {
+        UUID q = UUID.randomUUID(); UUID pid = UUID.randomUUID();
+        when(accounts.current(eq("intrus@t"))).thenReturn(new tn.elitetunisia.user.dto.UserSummary(pid, null, null, "intrus@t", null, null, java.util.Set.of(), "ACTIVE"));
+        when(svc.createForQuote(eq(q), eq(pid), any(), eq(PaymentMethod.CARD), eq("k4")))
+            .thenThrow(new PaymentException("QUOTE_NOT_FOUND", "Devis introuvable."));
+
+        mvc.perform(post("/api/customer/quotes/" + q + "/payments").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("intrus@t").authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_CUSTOMER"), new org.springframework.security.core.authority.SimpleGrantedAuthority("payments:create"))).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"amount\":100.00,\"method\":\"CARD\",\"idempotencyKey\":\"k4\"}"))
+            .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("QUOTE_NOT_FOUND"));
+        verify(svc).createForQuote(eq(q), eq(pid), any(), eq(PaymentMethod.CARD), eq("k4"));
+    }
+
 }

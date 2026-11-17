@@ -71,10 +71,11 @@ try {
     $env:DATABASE_USERNAME = 'et_test'; $env:DATABASE_PASSWORD = $script:pgPassword
     $env:JWT_SECRET = New-RandomSecret 48
     $env:SERVER_PORT = '8080'
+    $env:SPRING_PROFILES_ACTIVE = 'dev'
     $backend = Start-Process -FilePath "$repo\backend\mvnw.cmd" -ArgumentList '-DskipTests', 'spring-boot:run' `
         -WorkingDirectory "$repo\backend" -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput "$logDir\backend.log" -RedirectStandardError "$logDir\backend.err.log"
-    foreach ($name in 'DATABASE_URL', 'DATABASE_USERNAME', 'DATABASE_PASSWORD', 'JWT_SECRET', 'SERVER_PORT') { Remove-Item "Env:\$name" -ErrorAction SilentlyContinue }
+    foreach ($name in 'DATABASE_URL', 'DATABASE_USERNAME', 'DATABASE_PASSWORD', 'JWT_SECRET', 'SERVER_PORT', 'SPRING_PROFILES_ACTIVE') { Remove-Item "Env:\$name" -ErrorAction SilentlyContinue }
 
     $ready = $false
     for ($i = 0; $i -lt 90 -and -not $ready; $i++) {

@@ -27,6 +27,7 @@ Contrôler les réponses depuis un autre terminal :
 Invoke-WebRequest 'http://127.0.0.1:8080/api/health' -UseBasicParsing
 ```
 
+Le démarrage standard exige le profil `dev` explicite (`SPRING_PROFILES_ACTIVE=dev`) : sans profil, l'application démarre en mode sécurisé (cookies `Secure`, Swagger désactivé) et exige les variables de production.
 Le démarrage standard (profil `dev`) exige explicitement `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` et `JWT_SECRET`. Ne pas choisir une instance PostgreSQL existante sans en confirmer l'identité et l'isolation. Le port 5432 de cette machine appartient à un processus PostgreSQL dont la base et le répertoire de données n'ont pas été identifiés ; il n'a pas été utilisé.
 
 Réglages d'exploitation notables :
@@ -110,7 +111,7 @@ $env:PGPASSWORD = [IO.File]::ReadAllText("$root\pgpass.local")
 Remove-Item Env:\PGPASSWORD
 ```
 
-Validation complète (migrations V1→V20 sur base vide + tests d'intégration + scénarios de migration avec données). Pour une exécution déterministe, recréer `et_test_db` avant chaque passage (`DROP DATABASE IF EXISTS et_test_db` puis `CREATE DATABASE et_test_db`, uniquement sur ce cluster). Les scénarios créent et suppriment eux-mêmes des bases `et_mig_*` ; leur rapport est écrit dans `backend\target\migration-scenarios-report.md` :
+Validation complète (migrations V1→V20 sur base vide + tests d'intégration + scénarios de migration avec données). Pour une exécution déterministe, recréer `et_test_db` avant chaque passage : `.\scripts\test-backend-postgres.ps1` le fait (cluster 15432 uniquement) puis lance `mvnw -Ppostgres-test verify`. À la main : `DROP DATABASE IF EXISTS et_test_db` puis `CREATE DATABASE et_test_db`, uniquement sur ce cluster. Les scénarios créent et suppriment eux-mêmes des bases `et_mig_*` ; leur rapport est écrit dans `backend\target\migration-scenarios-report.md` :
 
 ```powershell
 $root = Join-Path $env:LOCALAPPDATA 'EliteTunisiaTools\pg-test-cluster'
@@ -125,11 +126,12 @@ Set-Location 'C:\Users\aaziza\Desktop\test\backend'
 'ELITE_POSTGRES_TEST','DATABASE_URL','DATABASE_USERNAME','DATABASE_PASSWORD' | ForEach-Object { Remove-Item "Env:\$_" -ErrorAction SilentlyContinue }
 ```
 
-Démarrage de l'application sur cette base (profil `dev` par défaut : Flyway activé, Hibernate `validate`). Le secret JWT est généré aléatoirement pour la session, sans être écrit :
+Démarrage de l'application sur cette base (profil `dev` demandé explicitement : Flyway activé, Hibernate `validate`). Le secret JWT est généré aléatoirement pour la session, sans être écrit :
 
 ```powershell
 $bytes = [byte[]]::new(48); $rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); $rng.Dispose()
 $env:JWT_SECRET = [Convert]::ToBase64String($bytes)
+$env:SPRING_PROFILES_ACTIVE = 'dev'
 $env:DATABASE_URL = 'jdbc:postgresql://127.0.0.1:15432/et_test_db'; $env:DATABASE_USERNAME = 'et_test'
 $env:DATABASE_PASSWORD = [IO.File]::ReadAllText("$root\pgpass.local"); $env:SERVER_PORT = '18080'
 .\mvnw.cmd -DskipTests spring-boot:run

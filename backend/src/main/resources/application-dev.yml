@@ -5,6 +5,16 @@ spring:
   jpa:
     show-sql: false
 
+app:
+  security:
+    secure-cookies: ${SECURE_COOKIES:false}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
 logging:
   level:
     tn.elitetunisia: INFO

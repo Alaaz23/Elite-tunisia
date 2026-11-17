@@ -19,6 +19,9 @@ param(
     [string]$PgBin = 'C:\Program Files\PostgreSQL\18\bin'
 )
 $ErrorActionPreference = 'Stop'
+foreach ($v in @(@('Database', $Database), @('User', $User), @('OutDir', $OutDir))) {
+    if ([string]::IsNullOrWhiteSpace($v[1])) { throw "Paramètre -$($v[0]) vide ou composé uniquement d'espaces." }
+}
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $file = Join-Path $OutDir ("{0}_{1:yyyyMMdd_HHmmss}.dump" -f $Database, (Get-Date))
 if (Test-Path $file) { throw "Le fichier existe déjà : $file" }
@@ -32,6 +35,7 @@ if ($LASTEXITCODE -ne 0) { Remove-Item $file -ErrorAction SilentlyContinue; thro
 if ($LASTEXITCODE -ne 0) { throw "L'archive produite est illisible : $file" }
 
 $hash = (Get-FileHash $file -Algorithm SHA256).Hash
-Set-Content -Path "$file.sha256" -Value "$hash  $(Split-Path $file -Leaf)"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[IO.File]::WriteAllText("$file.sha256", "$hash  $(Split-Path $file -Leaf)`n", $utf8NoBom)
 Write-Host "Sauvegarde : $file"
 Write-Host "SHA-256    : $hash"

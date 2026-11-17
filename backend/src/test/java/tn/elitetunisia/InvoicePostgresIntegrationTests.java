@@ -52,7 +52,7 @@ public class InvoicePostgresIntegrationTests {
         assertEquals(inv.getId(), stored.getId());
     }
 
-    @Test void invoiceReferenceUnique() {
+    @Test void invoiceCreationFromSameQuoteIsIdempotent() {
         var f = fixtures.createBooking(24);
         var quoteReq = new tn.elitetunisia.quote.QuoteRequest(java.time.Instant.now().plusSeconds(10*86400L).truncatedTo(java.time.temporal.ChronoUnit.MICROS), false, java.math.BigDecimal.ZERO, "", "", java.util.List.of());
         var quote = quoteService.create(f.booking().id(), quoteReq, f.owner(), null);
@@ -61,7 +61,8 @@ public class InvoicePostgresIntegrationTests {
 
         InvoiceEntity a = invoiceService.createFromQuote(quote.id(), f.owner(), 14);
         InvoiceEntity b = invoiceService.createFromQuote(quote.id(), f.owner(), 14);
-        // creating twice from same quote is allowed but should produce distinct references
-        assertNotEquals(a.getReference(), b.getReference());
+        // Une seule facture principale par devis : la demande répétée renvoie la facture existante.
+        assertEquals(a.getId(), b.getId());
+        assertEquals(a.getReference(), b.getReference());
     }
 }

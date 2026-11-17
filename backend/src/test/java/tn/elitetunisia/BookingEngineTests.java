@@ -19,7 +19,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.dao.DataIntegrityViolationException;
 import tools.jackson.databind.ObjectMapper;
 import tn.elitetunisia.auth.entity.UserEntity;
 import tn.elitetunisia.auth.repository.*;
@@ -28,6 +27,11 @@ import tn.elitetunisia.category.*;
 import tn.elitetunisia.customer.*;
 import tn.elitetunisia.vehicle.*;
 import tn.elitetunisia.booking.*;
+import tn.elitetunisia.catalogue.dto.VehicleSearchRequest;
+import tn.elitetunisia.payment.PaymentMethod;
+import tn.elitetunisia.payment.PaymentService;
+import tn.elitetunisia.quote.QuoteRequest;
+import tn.elitetunisia.quote.QuoteService;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -54,6 +58,9 @@ class BookingEngineTests {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
+    @Autowired TestFixtures fixtures;
+    @Autowired QuoteService quoteService;
+    @Autowired PaymentService paymentService;
 
     @Test void datesAndStarted24HourPricing() {
         Fixture fixture = fixture();
@@ -68,11 +75,12 @@ class BookingEngineTests {
         assertEquals("INVALID_DATE_RANGE", assertThrows(BookingException.class, () -> service.validateDates(null, fixture.end())).getCode());
         assertEquals("INVALID_DATE_RANGE", assertThrows(BookingException.class, () -> service.preview(request(fixture, fixture.start(), fixture.end().plusNanos(1)))).getCode());
     }
-    @Test void pendingDoesNotBlockAndConfirmedIntervalsAreHalfOpen() {
+    @Test void pendingRequestDoesNotBlockDatesButConfirmedIntervalsAreHalfOpen() {
         Fixture fixture = fixture();
         BookingSummary created = service.create(fixture.request(), fixture.owner(), null);
         assertEquals(BookingStatus.PENDING, created.status());
         assertTrue(service.availability(fixture.vehicle(), fixture.start(), fixture.end()).available());
+        payInFull(created.id(), fixture);
         service.transition(created.id(), BookingStatus.CONFIRMED, admin(), null);
         assertFalse(service.availability(fixture.vehicle(), fixture.start(), fixture.end()).available());
         assertFalse(service.availability(fixture.vehicle(), fixture.start().plusSeconds(1), fixture.end().plusSeconds(1)).available());
@@ -106,10 +114,12 @@ class BookingEngineTests {
     @Test void agencyTransitionsCancellationHistoryAndNotes() {
         Fixture fixture = fixture();
         BookingSummary booking = service.create(fixture.request(), fixture.owner(), null);
-        assertNotEquals(booking.reference(), service.create(fixture.request(), fixture.owner(), null).reference());
+        var shifted = request(fixture, fixture.start().plusSeconds(5 * 86400L), fixture.end().plusSeconds(5 * 86400L));
+        assertNotEquals(booking.reference(), service.create(shifted, fixture.owner(), null).reference());
         service.update(booking.id(), new BookingUpdateRequest("Tunis", "Sousse", "Internal only"), admin(), null);
         assertNull(service.customerGet(booking.id(), fixture.owner()).internalNote());
         assertEquals("Internal only", service.adminGet(booking.id()).internalNote());
+        payInFull(booking.id(), fixture);
         BookingSummary confirmed = service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null);
         assertNotNull(confirmed.confirmedAt());
         assertEquals("INVALID_OPERATION", assertThrows(BookingException.class,
@@ -131,6 +141,15 @@ class BookingEngineTests {
         assertEquals("INVALID_STATUS_TRANSITION", assertThrows(BookingException.class, () -> service.transition(rejected.id(), BookingStatus.IN_PROGRESS, admin(), null)).getCode());
         assertTrue(jdbc.queryForObject("select count(*) from audit_logs where entity_id = ? and action = 'BOOKING_CONFIRMED'", Integer.class, booking.id()) > 0);
     }
+    @Test void confirmationRequiresFullPaymentOfAcceptedQuote() {
+        Fixture fixture = fixture();
+        BookingSummary booking = service.create(fixture.request(), fixture.owner(), null);
+        assertEquals("PAYMENT_REQUIRED", assertThrows(BookingException.class,
+                () -> service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null)).getCode());
+        assertEquals(BookingStatus.PENDING, service.adminGet(booking.id()).status());
+        payInFull(booking.id(), fixture);
+        assertEquals(BookingStatus.CONFIRMED, service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null).status());
+    }
     @Test void administrativeStatusAndAvailableCatalogueFilters() throws Exception {
         Fixture fixture = fixture();
         var vehicle = vehicles.findById(fixture.vehicle()).orElseThrow();
@@ -143,37 +162,30 @@ class BookingEngineTests {
                 .param("brand", brand).param("passengers", "4").param("sort", "price_asc").param("size", "9"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
         var booking = service.create(fixture.request(), fixture.owner(), null);
+        payInFull(booking.id(), fixture);
         service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null);
         mvc.perform(get("/api/vehicles/available").param("startDateTime", fixture.start().toString()).param("endDateTime", fixture.end().toString()).param("brand", brand))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
     }
     @Test @EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
-    void concurrentConfirmationsAllowOnlyOneBlockingBookingOnPostgres() throws Exception {
+    void concurrentPendingCreationsOnSamePeriodDoNotBlockFleetOnPostgres() throws Exception {
         PostgresTestHelper.requirePostgresIfRequested(jdbc);
         Fixture fixture = fixture();
-        var first = service.create(fixture.request(), fixture.owner(), null);
-        var second = service.create(fixture.request(), fixture.owner(), null);
-        UUID actor = admin();
-        List<Boolean> outcomes = race(() -> confirm(first.id(), actor), () -> confirm(second.id(), actor));
-        assertEquals(1, outcomes.stream().filter(Boolean::booleanValue).count());
-        assertEquals(1, bookings.overlaps(fixture.vehicle(), fixture.start(), fixture.end(), BookingService.BLOCKING, null));
+        List<Boolean> outcomes = race(() -> tryCreate(fixture), () -> tryCreate(fixture));
+        assertEquals(2, outcomes.stream().filter(Boolean::booleanValue).count());
+        assertEquals(2, bookings.overlaps(fixture.vehicle(), fixture.start(), fixture.end(),
+                List.of(BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS), null));
     }
-    @Test @EnabledIfEnvironmentVariable(named = "ELITE_POSTGRES_TEST", matches = "true")
-    void postgresExclusionProtectsConcurrentWritesOutsideTheService() throws Exception {
-        PostgresTestHelper.requirePostgresIfRequested(jdbc);
-        Fixture fixture = fixture();
-        var first = service.create(fixture.request(), fixture.owner(), null);
-        var second = service.create(fixture.request(), fixture.owner(), null);
-        List<Boolean> outcomes = race(() -> directConfirm(first.id()), () -> directConfirm(second.id()));
-        assertEquals(1, outcomes.stream().filter(Boolean::booleanValue).count());
+    private void payInFull(UUID bookingId, Fixture fixture) {
+        var quote = quoteService.create(bookingId, new QuoteRequest(Instant.now().plusSeconds(10 * 86400L).truncatedTo(java.time.temporal.ChronoUnit.SECONDS),
+                false, BigDecimal.ZERO, "Proposition", "Internal only", List.of()), admin(), null);
+        quoteService.send(quote.id(), admin(), null);
+        quoteService.customerAction(quote.id(), fixture.owner(), "accept", null, null);
+        paymentService.createForQuote(quote.id(), fixture.owner(), quote.totalAmount(), PaymentMethod.CARD, "pay-" + UUID.randomUUID());
     }
-    private boolean confirm(UUID id, UUID actor) {
-        try { service.transition(id, BookingStatus.CONFIRMED, actor, null); return true; }
+    private boolean tryCreate(Fixture fixture) {
+        try { service.create(fixture.request(), fixture.owner(), null); return true; }
         catch (BookingException exception) { assertEquals("VEHICLE_NOT_AVAILABLE", exception.getCode()); return false; }
-    }
-    private boolean directConfirm(UUID id) {
-        try { jdbc.update("update bookings set status = 'CONFIRMED' where id = ?", id); return true; }
-        catch (DataIntegrityViolationException exception) { assertTrue(exception.getMessage().contains("bookings_no_blocking_overlap")); return false; }
     }
     private List<Boolean> race(Callable<Boolean> first, Callable<Boolean> second) throws Exception {
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
@@ -191,21 +203,59 @@ class BookingEngineTests {
     private RequestPostProcessor customer(Fixture fixture) {
         return user(fixture.email()).authorities(new SimpleGrantedAuthority("ROLE_CUSTOMER"), new SimpleGrantedAuthority("bookings:read"), new SimpleGrantedAuthority("bookings:create"), new SimpleGrantedAuthority("bookings:cancel"));
     }
+    @Test void availabilitySpecificationRespectsBookingsHoldsGuaranteesAndHalfOpenPeriods() {
+        Fixture fixture = fixture();
+        Instant start = fixture.start(), end = fixture.end();
+        assertTrue(available(start, end, ANY).contains(fixture.vehicle()));
+        BookingSummary booking = service.create(fixture.request(), fixture.owner(), null);
+        assertTrue(available(start, end, ANY).contains(fixture.vehicle()), "une demande PENDING ne bloque pas les dates");
+        payInFull(booking.id(), fixture);
+        service.transition(booking.id(), BookingStatus.CONFIRMED, admin(), null);
+        assertFalse(available(start, end, ANY).contains(fixture.vehicle()), "une réservation confirmée bloque les dates");
+        assertFalse(available(start.plusSeconds(3600), start.plusSeconds(7200), ANY).contains(fixture.vehicle()), "période incluse dans la réservation");
+        assertFalse(available(end.minusSeconds(60), end.plusSeconds(60), ANY).contains(fixture.vehicle()), "chevauchement partiel");
+        assertTrue(available(end, end.plusSeconds(3600), ANY).contains(fixture.vehicle()), "borne de fin exclue : période adjacente libre");
+        assertTrue(available(start.minusSeconds(3600), start, ANY).contains(fixture.vehicle()), "borne de début exclue : période adjacente libre");
+        Instant now = Instant.now();
+        assertFalse(available(now.plusSeconds(61L * 86400), now.plusSeconds(62L * 86400), ANY).contains(fixture.vehicle()), "période au-delà de la garantie");
+        assertFalse(available(now.minusSeconds(2L * 86400), now.minusSeconds(86400), ANY).contains(fixture.vehicle()), "période antérieure au début de la garantie");
+    }
+    @Test void availabilitySpecificationCombinesWithCatalogueFilters() {
+        Fixture fixture = fixture();
+        Instant start = fixture.start(), end = fixture.end();
+        var brand = brands.findById(vehicles.findById(fixture.vehicle()).orElseThrow().getBrand().getId()).orElseThrow();
+        assertTrue(available(start, end, new VehicleSearchRequest(null, brand.getSlug(), null, null, null, null, null, null, null, null, null)).contains(fixture.vehicle()));
+        assertFalse(available(start, end, new VehicleSearchRequest(null, "autre-marque-inexistante", null, null, null, null, null, null, null, null, null)).contains(fixture.vehicle()));
+        assertFalse(available(start, end, new VehicleSearchRequest(null, null, null, null, null, 5, null, null, null, null, null)).contains(fixture.vehicle()), "passagers insuffisants (véhicule de 4 places)");
+        assertTrue(available(start, end, new VehicleSearchRequest(null, null, null, null, null, 4, null, null, null, null, null)).contains(fixture.vehicle()));
+    }
+    @Test void availabilitySpecificationExcludesVehiclesInMaintenanceOrArchived() {
+        Fixture fixture = fixture();
+        var vehicle = vehicles.findById(fixture.vehicle()).orElseThrow();
+        vehicle.setStatus(VehicleStatus.MAINTENANCE); vehicles.saveAndFlush(vehicle);
+        assertFalse(available(fixture.start(), fixture.end(), ANY).contains(fixture.vehicle()));
+        vehicle.setStatus(VehicleStatus.ARCHIVED); vehicles.saveAndFlush(vehicle);
+        assertFalse(available(fixture.start(), fixture.end(), ANY).contains(fixture.vehicle()));
+    }
+    private static final VehicleSearchRequest ANY = new VehicleSearchRequest(null, null, null, null, null, null, null, null, null, null, null);
+    private List<UUID> available(Instant start, Instant end, VehicleSearchRequest filter) {
+        return vehicles.findAll(VehicleSpecification.matching(filter, true).and(VehicleSpecification.availableDuring(start, end))).stream().map(VehicleEntity::getId).toList();
+    }
     private UUID admin() {
-        return users.findByEmailIgnoreCase("superadmin@example.test").map(UserEntity::getId).orElseGet(() -> {
-            UserEntity admin = new UserEntity("superadmin@example.test", "not-a-login-password");
-            admin.addRole(roles.findById("SUPER_ADMIN").orElseThrow());
-            return users.saveAndFlush(admin).getId();
-        });
+        // Acteur technique unique : jamais l'e-mail du seeder, pour ne pas bloquer le vrai super-admin de test.
+        UserEntity admin = new UserEntity(TestIdentities.email("booking-actor"), "not-a-login-password");
+        admin.addRole(roles.findById("SUPER_ADMIN").orElseThrow());
+        return users.saveAndFlush(admin).getId();
     }
     private BookingRequest request(Fixture fixture, Instant start, Instant end) { return new BookingRequest(fixture.vehicle(), start, end, "Tunis", "Tunis", null); }
     private Fixture fixture() {
-        String suffix = UUID.randomUUID().toString(); String email = suffix + "@example.test";
+        String email = TestIdentities.email("booking-customer"); String suffix = UUID.randomUUID().toString();
         UserEntity user = new UserEntity(email, "not-a-login-password"); user.addRole(roles.findById("CUSTOMER").orElseThrow()); users.saveAndFlush(user);
         customers.saveAndFlush(new CustomerEntity(user, "Booking", "Client", "+216 20 123 456"));
         var brand = brands.saveAndFlush(new BrandEntity("B " + suffix, "b-" + suffix, "Test", null, true));
         var category = categories.saveAndFlush(new CategoryEntity("C " + suffix, "c-" + suffix, "Test", true));
-        var vehicle = vehicles.saveAndFlush(new VehicleEntity(brand, category, "Touring", 2025, "Test", new BigDecimal("100.123"), new BigDecimal("650"), null, "TND", 5, 4, TransmissionType.AUTOMATIC, FuelType.PETROL, false, VehicleStatus.AVAILABLE));
+        var vehicle = vehicles.saveAndFlush(new VehicleEntity(brand, category, "Touring", 2025, "Test", new BigDecimal("100.123"), new BigDecimal("650"), null, "TND", 4, 4, TransmissionType.AUTOMATIC, FuelType.PETROL, false, VehicleStatus.AVAILABLE));
+        fixtures.guaranteeVehicle(vehicle.getId(), user.getId());
         Instant start = Instant.now().plusSeconds(30 * 86400L).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         return new Fixture(user.getId(), email, vehicle.getId(), start, start.plusSeconds(86400));
     }

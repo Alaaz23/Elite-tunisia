@@ -2,6 +2,8 @@ import { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { Temporal } from '@js-temporal/polyfill';
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from './admin-credentials';
+import { grantFleetGuarantee } from './fleet-setup';
+import { payQuoteInFull } from './quote-setup';
 test.describe.serial('Quotes with PostgreSQL API',()=>{
   const suffix=Date.now().toString();const password='Quote-Strong-123!';const ownerEmail=`quote-owner-${suffix}@example.test`;const otherEmail=`quote-other-${suffix}@example.test`;const agentEmail=`quote-agent-${suffix}@example.test`;
   const start=Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:60}).with({hour:10,minute:0,second:0,millisecond:0,microsecond:0,nanosecond:0});const end=start.add({hours:25});const valid=Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:10}).with({hour:16,minute:0,second:0,millisecond:0,microsecond:0,nanosecond:0});
@@ -10,6 +12,7 @@ test.describe.serial('Quotes with PostgreSQL API',()=>{
     adminToken=await apiLogin(request,ADMIN_EMAIL,ADMIN_PASSWORD);
     const brand=await mutate(request,adminToken,'POST','/api/admin/brands',{name:`Quote Brand ${suffix}`,description:'E2E brand',active:true});const category=await mutate(request,adminToken,'POST','/api/admin/categories',{name:`Quote Category ${suffix}`,description:'E2E category',active:true});
     const vehicle=await mutate(request,adminToken,'POST','/api/admin/vehicles',{brandId:brand.id,categoryId:category.id,model:`Quote Touring ${suffix}`,year:2025,description:'E2E proposal vehicle',pricePerDay:500,pricePerWeek:3000,priceWithDriver:700,currency:'TND',passengers:5,doors:4,transmission:'AUTOMATIC',fuel:'PETROL',withDriverAvailable:true,status:'AVAILABLE',features:[],images:[]});vehicleId=vehicle.id as string;
+        await grantFleetGuarantee(request,adminToken,vehicleId,suffix,Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:1}).toInstant().toString(),Temporal.Now.zonedDateTimeISO('Africa/Tunis').add({days:89}).toInstant().toString());
     await mutate(request,adminToken,'POST','/api/admin/users',{firstName:'Quote',lastName:'Agent',email:agentEmail,phone:'+216 20 123 456',password,role:'AGENT',jobTitle:'Agent'});
     for(const email of [ownerEmail,otherEmail]){const token=await csrf(request);const response=await request.post('/api/auth/register',{headers:{'X-XSRF-TOKEN':token},data:{firstName:'Quote',lastName:'Client',email,phone:'+216 20 123 456',password,confirmPassword:password}});expect(response.status()).toBe(201);}
     ownerToken=await apiLogin(request,ownerEmail,password);otherToken=await apiLogin(request,otherEmail,password);
@@ -29,6 +32,7 @@ test.describe.serial('Quotes with PostgreSQL API',()=>{
   test('customer accepts; booking stays PENDING until agency confirms',async({page,request})=>{
     await login(page,ownerEmail,password);await page.goto(`/customer/quotes/${quoteId}`);await page.getByRole('button',{name:'Accepter le devis'}).click();await expect(page.locator('header .badge')).toHaveText('Accepté');await expect(page.getByRole('button',{name:'Accepter le devis'})).toHaveCount(0);
     const pending=await request.get(`/api/bookings/${bookingId}`,{headers:{Authorization:`Bearer ${ownerToken}`}});expect((await pending.json()).status).toBe('PENDING');
+        await payQuoteInFull(request,adminToken,ownerToken,quoteId);
     await page.getByRole('button',{name:'Déconnexion',exact:true}).click();await login(page,agentEmail,password,true);await page.goto(`/admin/quotes/${quoteId}`);await expect(page.locator('header .badge')).toHaveText('Accepté');await page.getByRole('button',{name:'Valider la réservation'}).click();await expect(page.getByText('Réservation confirmée.',{exact:true})).toBeVisible();
     const confirmed=await request.get(`/api/bookings/${bookingId}`,{headers:{Authorization:`Bearer ${ownerToken}`}});const result=await confirmed.json();expect(result.status).toBe('CONFIRMED');expect(result.totalAmount).toBe(1350);
   });
@@ -44,10 +48,16 @@ test.describe.serial('Quotes with PostgreSQL API',()=>{
   test('foreign customer cannot read or accept a quote',async({page,request})=>{
     const denied=await request.get(`/api/customer/quotes/${quoteId}`,{headers:{Authorization:`Bearer ${otherToken}`}});expect(denied.status()).toBe(404);const token=await csrf(request);const accept=await request.post(`/api/customer/quotes/${quoteId}/accept`,{headers:{Authorization:`Bearer ${otherToken}`,'X-XSRF-TOKEN':token},data:{}});expect(accept.status()).toBe(404);await login(page,otherEmail,password);await page.goto(`/customer/quotes/${quoteId}`);await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByRole('heading',{name:quoteReference,exact:true})).toHaveCount(0);
   });
-  test('accepted proposal cannot confirm after another booking takes the vehicle',async({page,request})=>{
-    const fixture=await sent(request,15);await mutate(request,ownerToken,'POST',`/api/customer/quotes/${fixture.quote.id}/accept`,{});
-    const rival=await mutate(request,otherToken,'POST','/api/bookings',{vehicleId,startDateTime:start.add({days:15}).toInstant().toString(),endDateTime:end.add({days:15}).toInstant().toString(),pickupLocation:'Tunis',dropoffLocation:'Tunis'});await mutate(request,adminToken,'PATCH',`/api/admin/bookings/${rival.id}/confirm`,{});
-    await login(page,agentEmail,password,true);await page.goto(`/admin/quotes/${fixture.quote.id}`);await page.getByRole('button',{name:'Valider la réservation'}).click();await expect(page.getByRole('alert')).toContainText('pas disponible');const pending=await request.get(`/api/bookings/${fixture.booking.id}`,{headers:{Authorization:`Bearer ${ownerToken}`}});expect((await pending.json()).status).toBe('PENDING');
+  test('several PENDING requests coexist; the conflicting confirmation is refused with VEHICLE_NOT_AVAILABLE',async({page,request})=>{
+    const first=await demand(request,15);
+    const second=await mutate(request,otherToken,'POST','/api/bookings',{vehicleId,startDateTime:start.add({days:15}).toInstant().toString(),endDateTime:end.add({days:15}).toInstant().toString(),pickupLocation:'Tunis',dropoffLocation:'Tunis'});
+    expect(first.status).toBe('PENDING');expect(second.status).toBe('PENDING');
+    const quote=await mutate(request,adminToken,'POST',`/api/admin/quotes/booking/${first.id}`,input());await mutate(request,adminToken,'POST',`/api/admin/quotes/${quote.id}/send`,{});await mutate(request,ownerToken,'POST',`/api/customer/quotes/${quote.id}/accept`,{});await payQuoteInFull(request,adminToken,ownerToken,quote.id);
+    await login(page,agentEmail,password,true);await page.goto(`/admin/quotes/${quote.id}`);await page.getByRole('button',{name:'Valider la réservation'}).click();await expect(page.getByText('Réservation confirmée.',{exact:true})).toBeVisible();
+    const conflictToken=await csrf(request);const conflict=await request.patch(`/api/admin/bookings/${second.id}/confirm`,{headers:{Authorization:`Bearer ${adminToken}`,'X-XSRF-TOKEN':conflictToken},data:{}});expect(conflict.status()).toBe(409);expect((await conflict.json()).code).toBe('VEHICLE_NOT_AVAILABLE');
+    await page.goto(`/admin/bookings/${second.id}`);await page.getByRole('button',{name:'Confirmer',exact:true}).click();await expect(page.getByRole('alert').first()).toBeVisible();await expect(page.getByText('Réservation confirmée.',{exact:true})).toHaveCount(0);
+    const firstState=await request.get(`/api/bookings/${first.id}`,{headers:{Authorization:`Bearer ${ownerToken}`}});expect((await firstState.json()).status).toBe('CONFIRMED');
+    const secondState=await request.get(`/api/bookings/${second.id}`,{headers:{Authorization:`Bearer ${otherToken}`}});expect((await secondState.json()).status).toBe('PENDING');
   });
   test('customer pays the server snapshot once without confirming the booking', async ({ page, request }) => {
     const fixture = await sent(request, 20);
@@ -75,5 +85,5 @@ test.describe.serial('Quotes with PostgreSQL API',()=>{
 });
 async function csrf(request:APIRequestContext):Promise<string>{return (await (await request.get('/api/auth/csrf')).json()).token as string;}
 async function apiLogin(request:APIRequestContext,email:string,password:string):Promise<string>{const token=await csrf(request);const response=await request.post('/api/auth/login',{headers:{'X-XSRF-TOKEN':token},data:{email,password}});expect(response.status()).toBe(200);return (await response.json()).accessToken as string;}
-async function mutate(request:APIRequestContext,token:string,method:string,url:string,data:unknown):Promise<Record<string,any>>{const csrfToken=await csrf(request);const response=await request.fetch(url,{method,headers:{Authorization:`Bearer ${token}`,'X-XSRF-TOKEN':csrfToken},data});expect(response.ok(),`${method} ${url}: ${response.status()}`).toBe(true);return await response.json();}
+async function mutate(request:APIRequestContext,token:string,method:string,url:string,data:unknown):Promise<Record<string,any>>{const csrfToken=await csrf(request);const response=await request.fetch(url,{method,headers:{Authorization:`Bearer ${token}`,'X-XSRF-TOKEN':csrfToken},data});expect(response.ok(),`${method} ${url}: ${response.status()} ${response.ok()?'':await response.text()}`).toBe(true);return await response.json();}
 async function login(page:Page,email:string,password:string,admin=false){await page.goto(admin?'/auth/admin-login':'/auth/login');await page.getByLabel('Adresse e-mail').fill(email);await page.getByLabel('Mot de passe').fill(password);await page.getByRole('button',{name:/Se connecter/}).click();await expect(page).toHaveURL(admin?/\/admin$/:/\/customer\/dashboard$/);}

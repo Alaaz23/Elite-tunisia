@@ -32,7 +32,7 @@ describe('InvoiceApiService', () => {
 
   it('uses the admin invoice endpoints for admin summaries, details and PDFs', () => {
     service.listForAdmin().subscribe();
-    http.expectOne('/api/admin/invoices').flush([]);
+    http.expectOne('/api/admin/invoices?page=0&size=25').flush({ content: [], page: 0, size: 25, totalElements: 0, totalPages: 0, first: true, last: true });
 
     service.get('invoice-1', true).subscribe();
     http.expectOne('/api/admin/invoices/invoice-1').flush({});

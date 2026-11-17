@@ -17,6 +17,13 @@ npm-debug.log*
 backend/target/
 *.class
 
+# Local evidence logs and command outputs (generated, kept on disk, not versioned)
+/*.log
+/*.exit.txt
+/*-git-*.txt
+/*-status*.txt
+/*-check*.txt
+
 # IDE and operating system
 .idea/
 .vscode/*

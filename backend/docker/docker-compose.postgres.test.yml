@@ -5,7 +5,7 @@ services:
     container_name: et_postgres_test
     environment:
       POSTGRES_USER: et_test
-      POSTGRES_PASSWORD: et_test
+      POSTGRES_PASSWORD: ${ET_TEST_DB_PASSWORD:-et_test}
       POSTGRES_DB: et_test_db
     ports:
       - "15432:5432" # isolated port to avoid conflicts

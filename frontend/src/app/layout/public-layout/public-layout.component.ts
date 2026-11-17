@@ -19,7 +19,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
     <main><router-outlet /></main>
     <footer class="site-footer">
       <a class="wordmark footer-wordmark" routerLink="/"><span class="wordmark-symbol">E</span><span>ELITE <b>TUNISIA</b></span></a>
-      <p>Luxury Mobility &amp; Premium Car Rental in Tunisia</p>
+      <p>Mobilité de prestige &amp; location de voitures premium en Tunisie</p>
       <a routerLink="/contact">Contact <span aria-hidden="true">↗</span></a>
     </footer>
   `,

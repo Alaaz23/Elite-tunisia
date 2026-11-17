@@ -27,22 +27,27 @@ public class BookingServiceUnitLogicTest {
     @Mock tn.elitetunisia.common.pricing.RentalPricingService pricing;
     @Mock QuoteRepository quotes;
     @Mock BookingOperationRepository operations;
+    @Mock tn.elitetunisia.partner.GuaranteeRepository guarantees;
+    @Mock tn.elitetunisia.payment.PaymentRepository payments;
 
     BookingService svc;
 
     @BeforeEach
     void init() {
         MockitoAnnotations.openMocks(this);
-        svc = new BookingService(bookings, vehicles, customers, events, audit, jdbc, "UTC", pricing, quotes, operations);
+        svc = new BookingService(bookings, vehicles, customers, events, audit, jdbc, "UTC", pricing, quotes, operations,
+                guarantees, payments);
     }
 
     @Test
-    void pendingDoesNotCountAsBlocking() {
+    void availableWhenNoBlockingBookingAndCoveredByGuarantee() {
         UUID vehicleId = UUID.randomUUID();
         Instant start = Instant.now().plusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         Instant end = start.plusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        // bookings.overlaps should be called with BLOCKING statuses only; simulate 0
-        when(bookings.overlaps(eq(vehicleId), eq(start), eq(end), anyList(), isNull())).thenReturn(Long.valueOf(0L));
+        // La sémantique PENDING/hold réelle est vérifiée en PostgreSQL (BookingHoldPostgresTest) ; ici seul le câblage est contrôlé.
+        when(bookings.countBlocking(eq(vehicleId), eq(start), eq(end), isNull())).thenReturn(0L);
+        when(guarantees.findCovering(eq(vehicleId), any(), eq(start), eq(end)))
+                .thenReturn(java.util.List.of(mock(tn.elitetunisia.partner.GuaranteeEntity.class)));
         // vehicle lookup mocked and set to rentable (AVAILABLE + active brand/category)
         tn.elitetunisia.vehicle.VehicleEntity vehicle = mock(tn.elitetunisia.vehicle.VehicleEntity.class);
         when(vehicle.getStatus()).thenReturn(tn.elitetunisia.vehicle.VehicleStatus.AVAILABLE);

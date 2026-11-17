@@ -22,6 +22,8 @@ public class BookingOperationServiceTest {
     AuditService audit;
     BookingEventRepository events;
     tn.elitetunisia.invoice.InvoiceService invoices;
+    BookingService bookingService;
+    tn.elitetunisia.billing.BillingRequestService billing;
     BookingOperationService svc;
 
     @BeforeEach
@@ -32,7 +34,10 @@ public class BookingOperationServiceTest {
         audit = mock(AuditService.class);
         events = mock(BookingEventRepository.class);
         invoices = mock(tn.elitetunisia.invoice.InvoiceService.class);
-        svc = new BookingOperationService(ops, bookings, vehicles, audit, events, invoices);
+        bookingService = mock(BookingService.class);
+        when(bookingService.lockForOperation(any())).thenAnswer(i -> bookings.findLocked(i.getArgument(0)).orElse(null));
+        billing = mock(tn.elitetunisia.billing.BillingRequestService.class);
+        svc = new BookingOperationService(ops, bookings, vehicles, audit, events, invoices, bookingService, billing);
     }
 
     @Test
@@ -72,6 +77,24 @@ public class BookingOperationServiceTest {
     }
 
     @Test
+    void secondPickupOnInProgressBookingReturnsExistingOperationWithoutDuplicate() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.IN_PROGRESS);
+        var existingPickup = new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO);
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(existingPickup));
+
+        var op = svc.recordPickup(bookingId, actor, 100, 75);
+
+        assertSame(existingPickup, op);
+        assertEquals(BookingStatus.IN_PROGRESS, booking.getStatus());
+        verify(ops, never()).saveAndFlush(any());
+        verify(booking, never()).transition(any(), any());
+        verify(events, never()).saveAndFlush(any());
+    }
+
+    @Test
     void returnWithoutPickupFails() {
         UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
         BookingEntity booking = mock(BookingEntity.class);
@@ -80,6 +103,92 @@ public class BookingOperationServiceTest {
 
         var ex = assertThrows(BookingException.class, () -> svc.recordReturn(bookingId, actor, 1200, 60, null, BigDecimal.ZERO));
         assertEquals("INVALID_OPERATION", ex.getCode());
+    }
+
+    @Test
+    void returnRejectsBookingNotInProgressBeforeAnyWrite() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.CONFIRMED);
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+
+        var ex = assertThrows(BookingException.class, () -> svc.recordReturn(bookingId, actor, 120, 50, null, BigDecimal.ZERO));
+        assertEquals("INVALID_STATUS_TRANSITION", ex.getCode());
+        verify(ops, never()).saveAndFlush(any());
+        verify(bookingService, never()).completeAfterReturn(any(), any(), any());
+    }
+
+    @Test
+    void validReturnDelegatesCompletionToBookingService() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.IN_PROGRESS);
+        when(booking.getVehicle()).thenReturn(mock(VehicleEntity.class));
+        when(vehicles.findLocked(any())).thenReturn(Optional.of(mock(VehicleEntity.class)));
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+        when(ops.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+
+        svc.recordReturn(bookingId, actor, 120, 50, null, BigDecimal.ZERO);
+
+        verify(bookingService).completeAfterReturn(booking, actor, "BOOKING_RETURN");
+    }
+
+    @Test
+    void mainInvoiceRequestIsEnqueuedOnlyAfterCompletionInSameTransaction() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.IN_PROGRESS);
+        when(booking.getVehicle()).thenReturn(mock(VehicleEntity.class));
+        when(vehicles.findLocked(any())).thenReturn(Optional.of(mock(VehicleEntity.class)));
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+        when(ops.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+
+        svc.recordReturn(bookingId, actor, 120, 50, null, BigDecimal.ZERO);
+
+        var order = inOrder(bookingService, billing);
+        order.verify(bookingService).completeAfterReturn(booking, actor, "BOOKING_RETURN");
+        order.verify(billing).enqueueMainInvoice(bookingId, actor);
+        verifyNoInteractions(invoices);
+    }
+
+    @Test
+    void failingToEnqueueMainInvoiceRollsBackReturnByPropagation() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.IN_PROGRESS);
+        when(booking.getVehicle()).thenReturn(mock(VehicleEntity.class));
+        when(vehicles.findLocked(any())).thenReturn(Optional.of(mock(VehicleEntity.class)));
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+        when(ops.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+        doThrow(new IllegalStateException("outbox failed")).when(billing).enqueueMainInvoice(any(), any());
+
+        assertThrows(IllegalStateException.class, () -> svc.recordReturn(bookingId, actor, 120, 50, null, BigDecimal.ZERO));
+    }
+
+    @Test
+    void completionFailureIsPropagatedNotSwallowed() {
+        UUID bookingId = UUID.randomUUID(); UUID actor = UUID.randomUUID();
+        BookingEntity booking = mock(BookingEntity.class);
+        when(bookings.findLocked(bookingId)).thenReturn(Optional.of(booking));
+        when(booking.getStatus()).thenReturn(BookingStatus.IN_PROGRESS);
+        when(booking.getVehicle()).thenReturn(mock(VehicleEntity.class));
+        when(vehicles.findLocked(any())).thenReturn(Optional.of(mock(VehicleEntity.class)));
+        when(ops.findByBookingIdOrderByCreatedAtAsc(bookingId)).thenReturn(List.of(
+                new BookingOperationEntity(bookingId, actor, "PICKUP", 100, null, 75, null, null, BigDecimal.ZERO)));
+        when(ops.saveAndFlush(any())).thenAnswer(i -> i.getArgument(0));
+        doThrow(new BookingException("AUDIT_FAILED", "audit")).when(bookingService).completeAfterReturn(any(), any(), any());
+
+        var ex = assertThrows(BookingException.class, () -> svc.recordReturn(bookingId, actor, 120, 50, null, BigDecimal.ZERO));
+        assertEquals("AUDIT_FAILED", ex.getCode());
+        verify(billing, never()).enqueueMainInvoice(any(), any());
     }
 
     @Test

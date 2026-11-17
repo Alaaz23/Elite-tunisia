@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import tn.elitetunisia.PostgresTestHelper;
 import tn.elitetunisia.TestFixtures;
+import tn.elitetunisia.TestIdentities;
 import tn.elitetunisia.auth.entity.UserEntity;
 import tn.elitetunisia.auth.repository.RoleRepository;
 import tn.elitetunisia.auth.repository.UserRepository;
@@ -74,7 +75,7 @@ class TransferWorkflowTest {
     }
 
     private UUID staff() {
-        var user = new UserEntity("staff-" + UUID.randomUUID() + "@example.test", "not-a-login-password");
+        var user = new UserEntity(TestIdentities.email("staff"), "not-a-login-password");
         user.addRole(roles.findById("AGENT").orElseThrow());
         users.saveAndFlush(user);
         employees.saveAndFlush(new EmployeeEntity(user, "EMP-" + UUID.randomUUID().toString().substring(0, 8), "Agent", "Staff", "Member", "+216 20 000 000"));
@@ -188,7 +189,7 @@ class TransferWorkflowTest {
     // ---- Couche HTTP : champs modifiables, validation, permissions ----
 
     private RequestPostProcessor staffWithBookingManagement() {
-        var user = new UserEntity("http-staff-" + UUID.randomUUID() + "@example.test", "not-a-login-password");
+        var user = new UserEntity(TestIdentities.email("http-staff"), "not-a-login-password");
         user.addRole(roles.findById("AGENT").orElseThrow());
         users.saveAndFlush(user);
         employees.saveAndFlush(new EmployeeEntity(user, "EMP-" + UUID.randomUUID().toString().substring(0, 8), "Agent", "Http", "Staff", "+216 20 000 000"));

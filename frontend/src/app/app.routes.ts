@@ -3,6 +3,7 @@ import { authGuard } from './core/guards/auth.guard';
 import { roleGuard } from './core/guards/role.guard';
 import { AdminLayoutComponent } from './layout/admin-layout/admin-layout.component';
 import { CustomerLayoutComponent } from './layout/customer-layout/customer-layout.component';
+import { PartnerLayoutComponent } from './layout/partner-layout/partner-layout.component';
 import { PublicLayoutComponent } from './layout/public-layout/public-layout.component';
 
 const page = () => import('./shared/components/page-placeholder/page-placeholder.component').then((module) => module.PagePlaceholderComponent);
@@ -12,6 +13,7 @@ const register = () => import('./features/auth/register.component').then((module
 const customerDashboard = () => import('./features/customer/customer-dashboard.component').then((module) => module.CustomerDashboardComponent);
 const customerProfile = () => import('./features/customer/customer-profile.component').then((module) => module.CustomerProfileComponent);
 const customerInvoices = () => import('./features/customer/customer-invoices.component').then((module) => module.CustomerInvoicesComponent);
+const customerInvoiceDetail = () => import('./features/customer/customer-invoice-detail.component').then((module) => module.CustomerInvoiceDetailComponent);
 const adminUsers = () => import('./features/admin/admin-users.component').then((module) => module.AdminUsersComponent);
 const vehicleCatalogue = () => import('./features/vehicles/vehicle-catalogue.component').then((module) => module.VehicleCatalogueComponent);
 const vehicleDetail = () => import('./features/vehicles/vehicle-detail.component').then((module) => module.VehicleDetailComponent);
@@ -22,6 +24,9 @@ const adminInvoices = () => import('./features/admin/admin-invoices.component').
 const adminDrivers = () => import('./features/admin/admin-drivers.component').then((module) => module.AdminDriversComponent);
 const adminServices = () => import('./features/admin/admin-services.component').then((module) => module.AdminServicesComponent);
 const adminCustomers = () => import('./features/admin/admin-customers.component').then((module) => module.AdminCustomersComponent);
+const adminPartners = () => import('./features/admin/admin-partners.component').then((module) => module.AdminPartnersComponent);
+const adminGuarantees = () => import('./features/admin/admin-guarantees.component').then((module) => module.AdminGuaranteesComponent);
+const partnerPortal = () => import('./features/partner/partner-portal.component').then((module) => module.PartnerPortalComponent);
 const forbidden = () => import('./features/customer/forbidden.component').then((module) => module.ForbiddenComponent);
 const bookingsList = () => import('./features/bookings/bookings-list.component').then((module) => module.BookingsListComponent);
 const bookingDetail = () => import('./features/bookings/booking-detail.component').then((module) => module.BookingDetailComponent);
@@ -70,9 +75,19 @@ export const routes: Routes = [
 			{ path: 'quotes', loadComponent: quotesList },
 			{ path: 'quotes/:id', loadComponent: quoteDetail },
 			{ path: 'invoices', loadComponent: customerInvoices, data: { title: 'Mes factures' } },
+			{ path: 'invoices/:id', loadComponent: customerInvoiceDetail },
 			{ path: 'profile', loadComponent: customerProfile },
 			{ path: 'notifications', loadComponent: page, data: { title: 'Notifications', description: 'Les notifications client restent à implémenter.' } },
 			{ path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+		],
+	},
+	{
+		path: 'partner',
+		component: PartnerLayoutComponent,
+		canActivate: [authGuard, roleGuard],
+		data: { roles: ['PARTNER'] },
+		children: [
+			{ path: '', pathMatch: 'full', loadComponent: partnerPortal },
 		],
 	},
 	{
@@ -95,7 +110,8 @@ export const routes: Routes = [
 			{ path: 'invoices', loadComponent: adminInvoices, data: { title: 'Factures' } },
 			{ path: 'payments', loadComponent: page, data: { title: 'Paiements', description: 'Aucun fournisseur de paiement n’est configuré.' } },
 			{ path: 'services', loadComponent: adminServices },
-			{ path: 'partners', loadComponent: page, data: { title: 'Partenaires', description: 'La gestion des partenaires reste à développer.' } },
+			{ path: 'partners', loadComponent: adminPartners, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN', 'MANAGER', 'AGENT'] } },
+			{ path: 'guarantees', loadComponent: adminGuarantees, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN', 'MANAGER', 'AGENT'] } },
 			{ path: 'users', loadComponent: adminUsers, canActivate: [roleGuard], data: { roles: ['SUPER_ADMIN'] } },
 			{ path: 'reports', loadComponent: page, data: { title: 'Rapports', description: 'Les rapports métier restent à développer.' } },
 		],

@@ -50,10 +50,11 @@ Backend, dans un autre terminal :
 
 ```powershell
 cd backend
+$env:SPRING_PROFILES_ACTIVE = 'dev'
 .\mvnw.cmd spring-boot:run
 ```
 
-Sous macOS/Linux, utiliser `./mvnw spring-boot:run`. Le profil par défaut est `dev`; l'URL PostgreSQL et les identifiants locaux correspondent aux valeurs Compose par défaut. `application-prod.yml` exige les variables d'environnement et les cookies sécurisés.
+Sous macOS/Linux, utiliser `./mvnw spring-boot:run`. Sans profil explicite, le backend démarre en mode sécurisé (cookies `Secure`, Swagger désactivé) et exige les variables de production : pour le développement local, définir `SPRING_PROFILES_ACTIVE=dev` (cookies non `Secure`, Swagger activé) et les variables `DATABASE_*` / `JWT_SECRET`. `application-prod.yml` exige les variables d'environnement et les cookies sécurisés.
 
 Contrôles rapides :
 

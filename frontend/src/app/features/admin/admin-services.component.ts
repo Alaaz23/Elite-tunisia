@@ -113,6 +113,7 @@ export class AdminServicesComponent implements OnInit {
   protected readonly page = signal(0);
   protected readonly totalPages = signal(0);
   protected readonly total = signal(0);
+  private latestLoadId = 0;
   protected readonly filters = this.builder.group({ search: [''], status: ['all'] });
   protected readonly form = this.builder.group({
     name: ['', [Validators.required, Validators.minLength(2), Validators.maxLength(120)]],
@@ -128,8 +129,10 @@ export class AdminServicesComponent implements OnInit {
   protected load(page: number): void {
     this.loading.set(true);
     const status = this.filters.controls.status.value;
+    const requestId = ++this.latestLoadId;
     this.api.list(this.filters.controls.search.value.trim(), status === 'all' ? null : status === 'active', page).subscribe({
       next: (result) => {
+        if (requestId !== this.latestLoadId) return;
         this.services.set(result.content); this.page.set(result.page); this.totalPages.set(result.totalPages); this.total.set(result.totalElements);
         this.loading.set(false);
       },
@@ -157,7 +160,11 @@ export class AdminServicesComponent implements OnInit {
     this.saving.set(true); this.error.set(''); this.success.set('');
     const request = id ? this.api.update(id, base) : this.api.create({ ...base, currency: value.currency });
     request.subscribe({
-      next: (saved) => { this.success.set(id ? `Le service « ${saved.name} » a été modifié.` : `Le service « ${saved.name} » a été créé.`); this.saving.set(false); this.cancel(); this.load(this.page()); },
+      next: (saved) => {
+        this.success.set(id ? `Le service « ${saved.name} » a été modifié.` : `Le service « ${saved.name} » a été créé.`);
+        this.saving.set(false); this.cancel();
+        if (id) { this.load(this.page()); } else { this.filters.controls.search.setValue(saved.name); this.load(0); }
+      },
       error: (error: unknown) => { this.fail(error, 'Impossible d’enregistrer le service.'); this.saving.set(false); },
     });
   }

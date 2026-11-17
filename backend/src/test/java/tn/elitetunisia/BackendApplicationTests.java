@@ -11,7 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -44,6 +46,9 @@ import tn.elitetunisia.employee.EmployeeRepository;
 class BackendApplicationTests {
     private static final String PASSWORD = "Strong-Pass-123!";
     private static final String REFRESH_COOKIE = "elite_refresh";
+    private static String mail(String name) {
+        return TestIdentities.runEmail(name);
+    }
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -79,18 +84,18 @@ class BackendApplicationTests {
 
     @Test
         void registrationCreatesCustomerProfileAndDoesNotExposeSecrets() throws Exception {
-        String refreshToken = register("customer@example.test", "Amira", "Ben Salem");
-        String accessToken = accessToken("customer@example.test");
+        String refreshToken = register(mail("customer"), "Amira", "Ben Salem");
+        String accessToken = accessToken(mail("customer"));
 
         mockMvc.perform(get("/api/auth/me").header("Authorization", bearer(accessToken)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.email").value("customer@example.test"))
+            .andExpect(jsonPath("$.email").value(mail("customer")))
             .andExpect(jsonPath("$.roles[0]").value("CUSTOMER"))
             .andExpect(jsonPath("$.firstName").value("Amira"))
             .andExpect(jsonPath("$.password").doesNotExist())
             .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
-        UserEntity user = users.findByEmailIgnoreCase("customer@example.test").orElseThrow();
+        UserEntity user = users.findByEmailIgnoreCase(mail("customer")).orElseThrow();
         org.junit.jupiter.api.Assertions.assertTrue(passwordEncoder.matches(PASSWORD, user.getPasswordHash()));
         org.junit.jupiter.api.Assertions.assertEquals("CUSTOMER", user.getRoleKeys().iterator().next());
         org.junit.jupiter.api.Assertions.assertTrue(customers.findById(user.getId()).isPresent());
@@ -99,7 +104,7 @@ class BackendApplicationTests {
             Integer.class, user.getId(), sha256(refreshToken)));
 
         mockMvc.perform(post("/api/auth/register").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content(registration("customer@example.test", "Amira", "Ben Salem", PASSWORD)))
+                .content(registration(mail("customer"), "Amira", "Ben Salem", PASSWORD)))
             .andExpect(status().isConflict());
         }
 
@@ -115,22 +120,22 @@ class BackendApplicationTests {
             .andExpect(status().isBadRequest());
 
         MvcResult roleChoice = mockMvc.perform(post("/api/auth/register").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"role-choice@example.test\",\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+216 20 123 456\",\"password\":\"Strong-Pass-123!\",\"confirmPassword\":\"Strong-Pass-123!\",\"role\":\"SUPER_ADMIN\"}"))
+                .content("{\"email\":\"" + mail("role-choice") + "\",\"firstName\":\"A\",\"lastName\":\"B\",\"phone\":\"+216 20 123 456\",\"password\":\"Strong-Pass-123!\",\"confirmPassword\":\"Strong-Pass-123!\",\"role\":\"SUPER_ADMIN\"}"))
             .andExpect(status().isCreated()).andReturn();
         String roleChoiceId = JsonPath.read(roleChoice.getResponse().getContentAsString(), "$.userId");
-        org.junit.jupiter.api.Assertions.assertEquals("CUSTOMER", users.findByEmailIgnoreCase("role-choice@example.test").orElseThrow().getRoleKeys().iterator().next());
+        org.junit.jupiter.api.Assertions.assertEquals("CUSTOMER", users.findByEmailIgnoreCase(mail("role-choice")).orElseThrow().getRoleKeys().iterator().next());
     }
 
     @Test
     void loginRejectsInvalidCredentials() throws Exception {
-        register("denied@example.test", "Sami", "Ali");
+        register(mail("denied"), "Sami", "Ali");
         mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"missing@example.test\",\"password\":\"wrong-password\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.detail").value("Adresse e-mail ou mot de passe incorrect."));
 
         mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content(login("denied@example.test", "Wrong-Pass-123!")))
+                .content(login(mail("denied"), "Wrong-Pass-123!")))
             .andExpect(status().isUnauthorized());
         org.junit.jupiter.api.Assertions.assertTrue(jdbcTemplate.queryForObject(
             "SELECT COUNT(*) FROM audit_logs WHERE action = 'LOGIN' AND result = 'FAILURE'", Integer.class) > 0);
@@ -139,18 +144,18 @@ class BackendApplicationTests {
     @Test
         void unauthenticatedAndCustomerRequestsCannotEnterProtectedAreas() throws Exception {
         mockMvc.perform(get("/api/customer/profile")).andExpect(status().isUnauthorized());
-            register("guarded@example.test", "Guarded", "Customer");
-            String customerAccess = accessToken("guarded@example.test");
+            register(mail("guarded"), "Guarded", "Customer");
+            String customerAccess = accessToken(mail("guarded"));
         mockMvc.perform(get("/api/admin/users").header("Authorization", bearer(customerAccess)))
             .andExpect(status().isForbidden());
         }
 
         @Test
         void customerCanOnlyEditTheirOwnProfile() throws Exception {
-        register("first@example.test", "First", "Customer");
-        register("second@example.test", "Second", "Customer");
-        String secondAccess = accessToken("second@example.test");
-        UserEntity first = users.findByEmailIgnoreCase("first@example.test").orElseThrow();
+        register(mail("first"), "First", "Customer");
+        register(mail("second"), "Second", "Customer");
+        String secondAccess = accessToken(mail("second"));
+        UserEntity first = users.findByEmailIgnoreCase(mail("first")).orElseThrow();
 
         mockMvc.perform(put("/api/customer/profile").with(csrf()).header("Authorization", bearer(secondAccess))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -165,7 +170,7 @@ class BackendApplicationTests {
 
         @Test
         void refreshRotationReuseLogoutExpiryAndDisabledUsersAreRejected() throws Exception {
-        String firstRefresh = register("refresh@example.test", "Rami", "User");
+        String firstRefresh = register(mail("refresh"), "Rami", "User");
         mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, "invalid-random-refresh-token")))
             .andExpect(status().isUnauthorized());
         MvcResult refreshed = mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, firstRefresh)))
@@ -176,21 +181,21 @@ class BackendApplicationTests {
         mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, secondRefresh)))
             .andExpect(status().isUnauthorized());
 
-        String logoutRefresh = register("logout@example.test", "Lina", "User");
+        String logoutRefresh = register(mail("logout"), "Lina", "User");
         mockMvc.perform(post("/api/auth/logout").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, logoutRefresh)))
             .andExpect(status().isNoContent());
         mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, logoutRefresh)))
             .andExpect(status().isUnauthorized());
 
-        String expiredRefresh = register("expired@example.test", "Elyes", "User");
+        String expiredRefresh = register(mail("expired"), "Elyes", "User");
         jdbcTemplate.update("UPDATE refresh_tokens SET expires_at = ? WHERE token_hash = ?",
             Timestamp.from(Instant.now().minusSeconds(1)), sha256(expiredRefresh));
         mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, expiredRefresh)))
             .andExpect(status().isUnauthorized());
 
-        String disabledRefresh = register("disabled@example.test", "Maya", "User");
-        String disabledAccess = accessToken("disabled@example.test");
-        UserEntity disabled = users.findByEmailIgnoreCase("disabled@example.test").orElseThrow();
+        String disabledRefresh = register(mail("disabled"), "Maya", "User");
+        String disabledAccess = accessToken(mail("disabled"));
+        UserEntity disabled = users.findByEmailIgnoreCase(mail("disabled")).orElseThrow();
         disabled.setEnabled(false);
         users.saveAndFlush(disabled);
         mockMvc.perform(get("/api/customer/profile").header("Authorization", bearer(disabledAccess)))
@@ -198,40 +203,40 @@ class BackendApplicationTests {
         mockMvc.perform(post("/api/auth/refresh").with(csrf()).cookie(new MockCookie(REFRESH_COOKIE, disabledRefresh)))
             .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content(login("disabled@example.test", PASSWORD)))
+                .content(login(mail("disabled"), PASSWORD)))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.detail").value("Votre compte a été désactivé."));
         }
 
         @Test
         void superAdminCanCreateUpdateAndDisableAnEmployee() throws Exception {
-        createEmployee("admin@example.test", "SUPER_ADMIN");
-        String adminAccess = accessToken("admin@example.test");
+        createEmployee(mail("admin"), "SUPER_ADMIN");
+        String adminAccess = accessToken(mail("admin"));
         mockMvc.perform(get("/api/admin/users").header("Authorization", bearer(adminAccess)))
             .andExpect(status().isOk());
 
         MvcResult created = mockMvc.perform(post("/api/admin/users").with(csrf())
                 .header("Authorization", bearer(adminAccess)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"firstName\":\"Agent\",\"lastName\":\"One\",\"email\":\"agent@example.test\",\"phone\":\"+216 20 123 456\",\"password\":\"Agent-Password-123!\",\"role\":\"AGENT\",\"jobTitle\":\"Agent\"}"))
+                .content("{\"firstName\":\"Agent\",\"lastName\":\"One\",\"email\":\"" + mail("agent") + "\",\"phone\":\"+216 20 123 456\",\"password\":\"Agent-Password-123!\",\"role\":\"AGENT\",\"jobTitle\":\"Agent\"}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.roles[0]").value("AGENT")).andReturn();
         UUID agentId = UUID.fromString(JsonPath.read(created.getResponse().getContentAsString(), "$.id"));
 
         mockMvc.perform(put("/api/admin/users/{id}", agentId).with(csrf())
                 .header("Authorization", bearer(adminAccess)).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"firstName\":\"Agent\",\"lastName\":\"One\",\"email\":\"agent@example.test\",\"phone\":\"+216 20 123 456\",\"role\":\"ACCOUNTANT\",\"jobTitle\":\"Comptable\"}"))
+                .content("{\"firstName\":\"Agent\",\"lastName\":\"One\",\"email\":\"" + mail("agent") + "\",\"phone\":\"+216 20 123 456\",\"role\":\"ACCOUNTANT\",\"jobTitle\":\"Comptable\"}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.roles[0]").value("ACCOUNTANT"));
         mockMvc.perform(patch("/api/admin/users/{id}/status", agentId).with(csrf())
                 .header("Authorization", bearer(adminAccess)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"enabled\":false}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DISABLED"));
         mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content(login("agent@example.test", "Agent-Password-123!")))
+                .content(login(mail("agent"), "Agent-Password-123!")))
             .andExpect(status().isUnauthorized());
         }
 
         @Test
         void catalogueCrudFiltersSortingPaginationAndCustomerAuthorization() throws Exception {
-        String adminEmail = "catalogue-admin-" + UUID.randomUUID() + "@example.test";
+        String adminEmail = TestIdentities.email("catalogue-admin");
         createEmployee(adminEmail, "SUPER_ADMIN");
         String adminAccess = accessToken(adminEmail);
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -292,7 +297,7 @@ class BackendApplicationTests {
             .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("MAINTENANCE"));
         mockMvc.perform(get("/api/vehicles/{id}", firstVehicle)).andExpect(status().isNotFound());
 
-        String customerEmail = "catalogue-customer-" + suffix + "@example.test";
+        String customerEmail = TestIdentities.email("catalogue-customer");
         register(customerEmail, "Catalogue", "Customer");
         String customerToken = accessToken(customerEmail);
         mockMvc.perform(get("/api/admin/vehicles").header("Authorization", bearer(customerToken)))
@@ -317,7 +322,7 @@ class BackendApplicationTests {
 
         @Test
         void uploadedImageSurvivesRepeatedVehicleUpdatesAndIsDeletedWithVehicle() throws Exception {
-        String email = "image-admin-" + UUID.randomUUID() + "@example.test";
+        String email = TestIdentities.email("image-admin");
         createEmployee(email, "SUPER_ADMIN");
         String token = accessToken(email);
         String suffix = UUID.randomUUID().toString().substring(0, 8);

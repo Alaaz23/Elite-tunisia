@@ -239,11 +239,21 @@
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-surefire-plugin</artifactId>
 						<configuration>
+							<!-- Legacy classes pinned to the 15432 cluster (CREATE/DROP DATABASE); excluded from elite_a4_test runs, not counted as passed. -->
+							<excludes>
+								<exclude>**/PartnerMigrationPostgresTest.java</exclude>
+								<exclude>**/PaymentBookingPostgresTest.java</exclude>
+								<exclude>**/PaymentQuotePostgresA4Test.java</exclude>
+							</excludes>
+							<!-- Pas de spring.datasource.* ici : la JVM Surefire doit rester sur H2 pour les tests unitaires et H2. -->
 							<environmentVariables>
 								<ELITE_POSTGRES_TEST>true</ELITE_POSTGRES_TEST>
-								<DATABASE_URL>${env.DATABASE_URL}</DATABASE_URL>
-								<DATABASE_USERNAME>${env.DATABASE_USERNAME}</DATABASE_USERNAME>
-								<DATABASE_PASSWORD>${env.DATABASE_PASSWORD}</DATABASE_PASSWORD>
+								<ELITE_POSTGRES_URL>${env.ELITE_POSTGRES_URL}</ELITE_POSTGRES_URL>
+								<ELITE_POSTGRES_USERNAME>${env.ELITE_POSTGRES_USERNAME}</ELITE_POSTGRES_USERNAME>
+								<ELITE_POSTGRES_PASSWORD>${env.ELITE_POSTGRES_PASSWORD}</ELITE_POSTGRES_PASSWORD>
+								<DATABASE_URL></DATABASE_URL>
+								<DATABASE_USERNAME></DATABASE_USERNAME>
+								<DATABASE_PASSWORD></DATABASE_PASSWORD>
 							</environmentVariables>
 						</configuration>
 					</plugin>
@@ -252,11 +262,25 @@
 						<artifactId>maven-failsafe-plugin</artifactId>
 						<version>3.5.6</version>
 						<configuration>
+							<!-- Pinned to the abandoned 15432 cluster and CREATE/DROP DATABASE: excluded, not counted as passed. -->
+							<excludes>
+								<exclude>**/MigrationWithExistingDataIT.java</exclude>
+							</excludes>
+							<systemPropertyVariables>
+								<spring.datasource.url>${env.ELITE_POSTGRES_URL}</spring.datasource.url>
+								<spring.datasource.username>${env.ELITE_POSTGRES_USERNAME}</spring.datasource.username>
+								<spring.datasource.password>${env.ELITE_POSTGRES_PASSWORD}</spring.datasource.password>
+								<spring.datasource.driver-class-name>org.postgresql.Driver</spring.datasource.driver-class-name>
+								<spring.flyway.enabled>true</spring.flyway.enabled>
+							</systemPropertyVariables>
 							<environmentVariables>
 								<ELITE_POSTGRES_TEST>true</ELITE_POSTGRES_TEST>
-								<DATABASE_URL>${env.DATABASE_URL}</DATABASE_URL>
-								<DATABASE_USERNAME>${env.DATABASE_USERNAME}</DATABASE_USERNAME>
-								<DATABASE_PASSWORD>${env.DATABASE_PASSWORD}</DATABASE_PASSWORD>
+								<ELITE_POSTGRES_URL>${env.ELITE_POSTGRES_URL}</ELITE_POSTGRES_URL>
+								<ELITE_POSTGRES_USERNAME>${env.ELITE_POSTGRES_USERNAME}</ELITE_POSTGRES_USERNAME>
+								<ELITE_POSTGRES_PASSWORD>${env.ELITE_POSTGRES_PASSWORD}</ELITE_POSTGRES_PASSWORD>
+								<DATABASE_URL></DATABASE_URL>
+								<DATABASE_USERNAME></DATABASE_USERNAME>
+								<DATABASE_PASSWORD></DATABASE_PASSWORD>
 							</environmentVariables>
 						</configuration>
 						<executions>

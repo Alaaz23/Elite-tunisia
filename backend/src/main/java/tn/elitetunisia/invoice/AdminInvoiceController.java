@@ -1,16 +1,26 @@
 package tn.elitetunisia.invoice;
 
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import tn.elitetunisia.catalogue.dto.PagedResponse;
+import tn.elitetunisia.common.web.AdminPageRequest;
 
 @RestController
 @RequestMapping("/api/admin/invoices")
 @PreAuthorize("hasAuthority('invoices:read')")
 public class AdminInvoiceController {
+    private static final Set<String> SORTABLE = Set.of("reference", "totalAmount", "currency", "issuedAt");
     private final InvoiceService service; private final InvoiceDocumentService docs;
     public AdminInvoiceController(InvoiceService service, InvoiceDocumentService docs) { this.service = service; this.docs = docs; }
-    @GetMapping public java.util.List<InvoiceAdminSummary> list() { return service.adminList().stream().map(InvoiceAdminSummary::from).toList(); }
+    @GetMapping public PagedResponse<InvoiceAdminSummary> list(Pageable pageable) {
+        Page<InvoiceAdminSummary> page = service.adminList(AdminPageRequest.of(pageable, SORTABLE, "issuedAt")).map(InvoiceAdminSummary::from);
+        return new PagedResponse<>(page.getContent(), page.getNumber(), page.getSize(), page.getTotalElements(),
+                page.getTotalPages(), page.isFirst(), page.isLast());
+    }
     @GetMapping("/{id}") public InvoiceAdminDetail get(@PathVariable UUID id) { return InvoiceAdminDetail.from(service.adminGet(id)); }
 
     @GetMapping("/{id}/pdf")

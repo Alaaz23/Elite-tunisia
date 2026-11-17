@@ -22,6 +22,8 @@ public class BookingServiceIdempotenceTest {
     JdbcTemplate jdbc;
     tn.elitetunisia.common.pricing.RentalPricingService pricing;
     tn.elitetunisia.quote.QuoteRepository quotes;
+    tn.elitetunisia.partner.GuaranteeRepository guarantees;
+    tn.elitetunisia.payment.PaymentRepository payments;
     BookingOperationRepository operations;
     BookingService service;
 
@@ -35,7 +37,8 @@ public class BookingServiceIdempotenceTest {
         pricing = mock(tn.elitetunisia.common.pricing.RentalPricingService.class);
         quotes = mock(tn.elitetunisia.quote.QuoteRepository.class);
         operations = mock(BookingOperationRepository.class);
-        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations);
+        service = new BookingService(bookings, vehicles, mock(tn.elitetunisia.customer.CustomerRepository.class), events, audit, jdbc, "UTC", pricing, quotes, operations,
+                mock(tn.elitetunisia.partner.GuaranteeRepository.class), mock(tn.elitetunisia.payment.PaymentRepository.class));
     }
 
     @Test
@@ -58,7 +61,7 @@ public class BookingServiceIdempotenceTest {
         var request = new BookingRequest(vehicleId, start, start.plusSeconds(86400), "Tunis", "Tunis", null);
         var preview = new BookingPreview(vehicleId, "Test Touring", start, request.endDateTime(), 1,
             amount, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, amount, "TND", "UTC");
-        BookingEntity booking = new BookingEntity("ET-TEST-IDEMPOTENCE", customer, vehicle, request, preview);
+        BookingEntity booking = new BookingEntity("ET-TEST-IDEMPOTENCE", customer, vehicle, request, preview, UUID.randomUUID());
         Instant confirmedAt = Instant.now();
         booking.transition(BookingStatus.CONFIRMED, confirmedAt);
         UUID id = booking.getId();

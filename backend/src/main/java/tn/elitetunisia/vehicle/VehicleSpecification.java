@@ -1,21 +1,45 @@
 package tn.elitetunisia.vehicle;
 
+import java.time.Instant;
 import java.util.Locale;
+import java.util.UUID;
 
 import org.springframework.data.jpa.domain.Specification;
 
+import tn.elitetunisia.booking.BookingEntity;
+import tn.elitetunisia.booking.BookingStatus;
 import tn.elitetunisia.catalogue.dto.VehicleSearchRequest;
+import tn.elitetunisia.partner.GuaranteeEntity;
+import tn.elitetunisia.partner.GuaranteeStatus;
 
 public final class VehicleSpecification {
     private VehicleSpecification() { }
-    public static Specification<VehicleEntity> availableDuring(java.time.Instant start, java.time.Instant end) {
+
+    /**
+     * Véhicules réservables sur [start, end] : aucune réservation CONFIRMED ou IN_PROGRESS chevauchante
+     * (une demande PENDING ne bloque jamais) et une garantie ACTIVE couvrant intégralement la période.
+     */
+    public static Specification<VehicleEntity> availableDuring(Instant start, Instant end) {
         return (root, query, builder) -> {
-            var subquery = query.subquery(java.util.UUID.class);
-            var booking = subquery.from(tn.elitetunisia.booking.BookingEntity.class);
-            subquery.select(booking.get("id")).where(builder.equal(booking.get("vehicle").get("id"), root.get("id")),
-                    booking.get("status").in(tn.elitetunisia.booking.BookingService.BLOCKING),
-                    builder.lessThan(booking.get("startDateTime"), end), builder.greaterThan(booking.get("endDateTime"), start));
-            return builder.not(builder.exists(subquery));
+            var blockingSubquery = query.subquery(UUID.class);
+            var booking = blockingSubquery.from(BookingEntity.class);
+            blockingSubquery.select(booking.get("id")).where(
+                    builder.equal(booking.get("vehicle").get("id"), root.get("id")),
+                    booking.get("status").in(BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS),
+                    builder.lessThan(booking.get("startDateTime"), end),
+                    builder.greaterThan(booking.get("endDateTime"), start));
+
+            var guaranteeSubquery = query.subquery(UUID.class);
+            var guarantee = guaranteeSubquery.from(GuaranteeEntity.class);
+            guaranteeSubquery.select(guarantee.get("id")).where(
+                    builder.equal(guarantee.get("vehicle").get("id"), root.get("id")),
+                    builder.equal(guarantee.get("status"), GuaranteeStatus.ACTIVE),
+                    builder.lessThanOrEqualTo(guarantee.get("startsAt"), start),
+                    builder.greaterThanOrEqualTo(guarantee.get("endsAt"), end));
+
+            return builder.and(
+                    builder.not(builder.exists(blockingSubquery)),
+                    builder.exists(guaranteeSubquery));
         };
     }
 

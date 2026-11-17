@@ -6,12 +6,14 @@ import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import tn.elitetunisia.auth.entity.RoleEntity;
+import tn.elitetunisia.catalogue.dto.PagedResponse;
 import tn.elitetunisia.auth.entity.UserEntity;
 import tn.elitetunisia.auth.repository.RoleRepository;
 import tn.elitetunisia.auth.repository.RefreshTokenRepository;
@@ -50,9 +52,12 @@ public class AdminUserService {
     }
 
     @Transactional(readOnly = true)
-    public Page<UserSummary> list(int page, int size) {
-        return users.findAll(PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100)))
+    public PagedResponse<UserSummary> list(int page, int size) {
+        Sort newestFirst = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"));
+        Page<UserSummary> result = users.findAll(PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100), newestFirst))
                 .map(user -> accounts.findById(user.getId()));
+        return new PagedResponse<>(result.getContent(), result.getNumber(), result.getSize(), result.getTotalElements(),
+                result.getTotalPages(), result.isFirst(), result.isLast());
     }
 
     @Transactional(readOnly = true)

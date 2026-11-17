@@ -35,11 +35,13 @@ class PaymentServiceIdempotenceCompatibleTest {
         when(quote.getCurrency()).thenReturn("USD");
 
         when(quotes.findLockedById(quoteId)).thenReturn(Optional.of(quote));
+        when(quotes.findBookingIdForCustomer(quoteId, customerId)).thenReturn(Optional.of(UUID.randomUUID()));
 
         PaymentEntity existing = new PaymentEntity(quote, customerId, BigDecimal.valueOf(200), "USD", PaymentMethod.CARD, idem);
-        when(payments.findByIdempotencyKey(idem)).thenReturn(Optional.of(existing));
+        when(payments.findByCustomerIdAndQuote_IdAndIdempotencyKey(customerId, quoteId, idem)).thenReturn(Optional.of(existing));
 
-        PaymentService svc = new PaymentService(payments, events, provider, quotes);
+        PaymentService svc = new PaymentService(payments, events, provider, quotes, mock(tn.elitetunisia.booking.BookingService.class),
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
 
         PaymentEntity result = svc.createForQuote(quoteId, customerId, BigDecimal.valueOf(200), PaymentMethod.CARD, idem);
 
@@ -47,7 +49,7 @@ class PaymentServiceIdempotenceCompatibleTest {
     }
 
     @Test
-    void handlesConcurrentInsertByReadingExisting() {
+    void rejectsConcurrentInsertWithIdempotencyConflict() {
         PaymentRepository payments = mock(PaymentRepository.class);
         PaymentEventRepository events = mock(PaymentEventRepository.class);
         PaymentProvider provider = mock(PaymentProvider.class);
@@ -65,16 +67,24 @@ class PaymentServiceIdempotenceCompatibleTest {
         when(quote.getCurrency()).thenReturn("EUR");
 
         when(quotes.findLockedById(quoteId)).thenReturn(Optional.of(quote));
+        UUID bookingId = UUID.randomUUID();
+        when(quotes.findBookingIdForCustomer(quoteId, customerId)).thenReturn(Optional.of(bookingId));
 
-        // simulate saveAndFlush throwing then findByIdempotencyKey returning existing
+        tn.elitetunisia.booking.BookingEntity booking = mock(tn.elitetunisia.booking.BookingEntity.class);
+        tn.elitetunisia.booking.BookingService bookingService = mock(tn.elitetunisia.booking.BookingService.class);
+        when(quote.getBooking()).thenReturn(booking);
+        when(booking.getId()).thenReturn(bookingId);
+        when(booking.getStatus()).thenReturn(tn.elitetunisia.booking.BookingStatus.PENDING);
+        when(bookingService.lockForCommercialOperation(bookingId)).thenReturn(booking);
+
+        // Collision de clé après le verrou : aucune clé relue ne correspond, l'erreur d'origine est relancée (pas de conflit d'idempotence).
         doThrow(new DataIntegrityViolationException("duplicate key")).when(payments).saveAndFlush(any(PaymentEntity.class));
-        PaymentEntity existing = new PaymentEntity(quote, customerId, BigDecimal.valueOf(300), "EUR", PaymentMethod.CASH, idem);
-        when(payments.findByIdempotencyKey(idem)).thenReturn(Optional.of(existing));
 
-        PaymentService svc = new PaymentService(payments, events, provider, quotes);
+        PaymentService svc = new PaymentService(payments, events, provider, quotes, bookingService,
+                new org.springframework.transaction.support.TransactionTemplate(mock(org.springframework.transaction.PlatformTransactionManager.class)));
 
-        PaymentEntity result = svc.createForQuote(quoteId, customerId, BigDecimal.valueOf(300), PaymentMethod.CASH, idem);
-
-        assertSame(existing, result);
+        assertThrows(DataIntegrityViolationException.class,
+                () -> svc.createForQuote(quoteId, customerId, BigDecimal.valueOf(300), PaymentMethod.CASH, idem));
+        verifyNoInteractions(provider);
     }
 }

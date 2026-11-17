@@ -1,6 +1,7 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ApiHttpError } from '../../core/models/api-http-error';
 import { AuthService } from '../../core/auth/auth.service';
 import { BookingApiService, bookingDate, bookingMoney } from '../../core/services/booking-api.service';
 import { Quote, QuoteApiService, quoteStatus } from '../../core/services/quote-api.service';
@@ -22,9 +23,10 @@ import { QuoteEditorComponent } from './quote-editor.component';
       @if(!admin()&&item.status==='SENT'){<button class="button button-primary" (click)="customerAction('accept')" [disabled]="busy()">Accepter le devis</button><button class="button button-secondary" (click)="customerAction('reject')" [disabled]="busy()">Refuser le devis</button><button class="button button-secondary" (click)="customerAction('request-change')" [disabled]="busy()">Demander une modification</button>}
       </div>
       @if(!admin()&&item.status==='SENT'){<label class="field"><span>Motif ou demande (facultatif)</span><textarea [formControl]="message" maxlength="2000"></textarea></label>}
-      @if(!admin()&&item.status==='ACCEPTED'){<div class="payment"><p>Montant à payer : {{money(item.totalAmount,item.currency)}}</p><button class="button button-primary" (click)="pay()" [disabled]="paymentState()!=='idle'">Payer</button>
+      @if(!admin()&&item.status==='ACCEPTED'){<div class="payment"><p>Montant à payer : {{money(item.totalAmount,item.currency)}}</p>      <button class="button button-primary" (click)="pay()" [disabled]="paymentLocked()">Payer</button>
         @if(paymentState()==='processing'){<span class="status">Paiement en cours...</span>}
-        @if(paymentState()==='success'){<span class="status">Paiement réussi.</span>}
+              @if(paymentState()==='pending'){<span class="status">Paiement en cours de vérification. Ne relancez pas le paiement.</span>}
+              @if(paymentState()==='success'){<span class="status">Paiement réussi.</span>}
         @if(paymentState()==='failed'){<span class="status">Échec du paiement.</span>}
       </div>}
       @if(admin()&&item.internalNote){<section class="note"><h2>Note interne</h2><p>{{item.internalNote}}</p></section>}
@@ -36,7 +38,9 @@ import { QuoteEditorComponent } from './quote-editor.component';
 export class QuoteDetailComponent implements OnInit {
   private readonly api=inject(QuoteApiService);private readonly bookingApi=inject(BookingApiService);private readonly route=inject(ActivatedRoute);private readonly auth=inject(AuthService);
   protected readonly admin=signal(false);protected readonly canManage=computed(()=>this.auth.hasAnyRole(['SUPER_ADMIN','MANAGER','AGENT']));protected readonly quote=signal<Quote|null>(null);protected readonly loading=signal(true);protected readonly busy=signal(false);protected readonly error=signal('');protected readonly success=signal('');
-  protected readonly paymentState=signal<'idle'|'processing'|'success'|'failed'>('idle');
+  protected readonly paymentState=signal<'idle'|'processing'|'pending'|'success'|'failed'>('idle');
+  private paymentKey:{quoteId:string;value:string}|null=null;
+  protected readonly paymentLocked=computed(()=>['processing','pending','success'].includes(this.paymentState()));
   protected readonly date=bookingDate;protected readonly money=bookingMoney;protected readonly status=quoteStatus;protected readonly message=new FormControl('',{nonNullable:true,validators:Validators.maxLength(2000)});
   ngOnInit():void{this.admin.set(this.route.snapshot.data['adminQuotes']===true);const id=this.route.snapshot.paramMap.get('id');if(!id){this.fail(new Error('Identifiant absent.'));return;}this.api.get(id,this.admin()).subscribe({next:quote=>{this.receive(quote);this.loading.set(false);},error:error=>this.fail(error)});}
   protected receive(quote:Quote):void{this.quote.set(quote);this.busy.set(false);}
@@ -45,18 +49,21 @@ export class QuoteDetailComponent implements OnInit {
   protected confirmBooking():void{const quote=this.quote();if(!quote||this.busy())return;this.busy.set(true);this.error.set('');this.bookingApi.action(quote.bookingId,'confirm').subscribe({next:booking=>{this.receive({...quote,bookingStatus:booking.status});this.success.set('Réservation confirmée.');},error:error=>this.fail(error)});}
   protected eventLabel(action:string):string{return ({QUOTE_CREATED:'Création',QUOTE_UPDATED:'Modification',QUOTE_SENT:'Envoi',QUOTE_ACCEPTED:'Acceptation',QUOTE_REJECTED:'Refus',QUOTE_EXPIRED:'Expiration',QUOTE_CANCELLED:'Annulation',QUOTE_CHANGE_REQUESTED:'Demande de modification'} as Record<string,string>)[action]??action;}
   protected pay():void{
-    const quote=this.quote(); if(!quote||this.busy()||this.paymentState()!=='idle')return;
+    const quote=this.quote(); if(!quote||this.busy()||this.paymentLocked())return;
     this.paymentState.set('processing'); this.busy.set(true); this.error.set('');
-    const key=(typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2);
-    // disable button by busy/paymentState; protect against double submit
+    if(this.paymentKey?.quoteId!==quote.id){this.paymentKey={quoteId:quote.id,value:(typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2)};}
+    const key=this.paymentKey.value;
     this.api.createPayment(quote.id,{amount:quote.totalAmount,method:'CARD',idempotencyKey:key}).subscribe({next:res=>{
-      this.paymentState.set('success'); this.success.set('Paiement réussi. Référence: ' + res.transactionRef);
+      if(res.status==='CAPTURED'){this.paymentState.set('success'); this.success.set('Paiement enregistré. Référence : ' + res.transactionRef + '. La réservation reste en attente de validation par l’agence.');}
+      else if(res.status==='FAILED'){this.paymentState.set('failed'); this.paymentKey=null;}
+      else {this.paymentState.set('pending');}
       this.busy.set(false);
     },error:err=>{
-      this.paymentState.set('failed'); this.busy.set(false);
-      // try to surface server message if present
-      const msg = err && (err as any).error && (err as any).error.message ? (err as any).error.message : (err instanceof Error?err.message:'Le paiement a échoué.');
-      this.fail(new Error(msg));
+      const inProgress = err instanceof ApiHttpError && err.code === 'PAYMENT_IN_PROGRESS';
+      const unknownOutcome = err instanceof ApiHttpError && err.status === 0;
+      if(!inProgress && !unknownOutcome) this.paymentKey=null;
+      this.paymentState.set(inProgress || unknownOutcome ? 'pending' : 'failed'); this.busy.set(false);
+      this.fail(err);
     }});
   }
   private fail(error:unknown):void{this.loading.set(false);this.busy.set(false);this.error.set(error instanceof Error?error.message:'La demande a échoué.');}

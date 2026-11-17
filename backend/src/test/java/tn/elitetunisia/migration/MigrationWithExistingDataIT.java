@@ -45,9 +45,10 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @Tag("postgres")
 class MigrationWithExistingDataIT {
     private static final Pattern ALLOWED_URL =
-            Pattern.compile("jdbc:postgresql://(localhost|127\\.0\\.0\\.1):15432/et_test_db(?:\\?.*)?");
+            Pattern.compile("jdbc:postgresql://(localhost|127\\.0\\.0\\.1):15432/postgres(?:\\?.*)?");
+    private static final java.util.Set<String> ALLOWED_USERS = java.util.Set.of("et_test", "elite_a4_tester");
     private static final String PREFIX = "et_mig_";
-    private static final int LATEST = 20;
+    private static final int LATEST = 26;
     private static final int[] TEMPLATE_VERSIONS = {1, 3, 4, 5, 13, 15, 16, 18, 19};
     private static final List<String> REPORT = new ArrayList<>();
 
@@ -56,17 +57,17 @@ class MigrationWithExistingDataIT {
 
     @BeforeAll
     static void prepareTemplates() throws Exception {
-        String url = System.getenv("DATABASE_URL");
-        user = System.getenv("DATABASE_USERNAME");
-        password = System.getenv("DATABASE_PASSWORD");
-        if (url == null || !ALLOWED_URL.matcher(url).matches() || !"et_test".equals(user) || password == null) {
-            throw new IllegalStateException("Ces tests n'acceptent que le cluster isole 127.0.0.1:15432 avec l'utilisateur et_test.");
+        String url = System.getenv("ELITE_A4_PG_URL");
+        user = System.getenv("ELITE_A4_PG_USER");
+        password = System.getenv("ELITE_A4_PG_PASSWORD");
+        if (url == null || !ALLOWED_URL.matcher(url).matches() || !ALLOWED_USERS.contains(user) || password == null) {
+            throw new IllegalStateException("Ces tests n'acceptent que le cluster isole 127.0.0.1:15432 avec un utilisateur de test autorise (ELITE_A4_PG_USER).");
         }
         try (Connection admin = connect("postgres"); Statement st = admin.createStatement();
                 ResultSet rs = st.executeQuery("SELECT inet_server_port(), current_user, version()")) {
             rs.next();
             assertEquals(15432, rs.getInt(1));
-            assertEquals("et_test", rs.getString(2));
+            assertEquals(user, rs.getString(2));
             REPORT.add("Serveur : " + rs.getString(3));
             REPORT.add("");
             REPORT.add("| Scenario | Depart | Constats du pre-controle | Resultat Flyway | Derniere migration | Verifications |");

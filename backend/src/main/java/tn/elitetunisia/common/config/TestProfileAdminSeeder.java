@@ -70,7 +70,10 @@ public class TestProfileAdminSeeder implements ApplicationRunner {
                 {"quotes:send", "Envoyer les devis"}, {"quotes:accept", "Accepter ses devis"}, {"quotes:reject", "Refuser ses devis"},
                 {"payments:create", "Payer ses devis acceptés"}, {"invoices:read", "Consulter ses factures"},
                 {"drivers:manage", "Gérer les chauffeurs"}, {"customers:read", "Consulter les clients"},
-                {"services:read", "Consulter le catalogue de services"}, {"services:manage", "Créer et gérer les services"}
+                {"services:read", "Consulter le catalogue de services"}, {"services:manage", "Créer et gérer les services"},
+                {"partners:read", "Consulter les partenaires et leurs véhicules"},
+                {"partners:manage", "Créer et gérer les partenaires et les affectations de véhicules"},
+                {"billing:backfill", "Régulariser la facturation des réservations terminées"}
         };
         for (String[] permission : permissionNames) {
             permissions.findById(permission[0]).orElseGet(() -> permissions.save(new PermissionEntity(permission[0], permission[1])));

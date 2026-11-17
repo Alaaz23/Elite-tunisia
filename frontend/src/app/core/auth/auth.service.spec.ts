@@ -65,4 +65,18 @@ describe('AuthService', () => {
     expect(restored).toBe(false);
     expect(service.session()).toBeNull();
   });
+
+  it('shares a single refresh between concurrent recoveries from expired access tokens', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    service.refreshSession().subscribe(first);
+    service.refreshSession().subscribe(second);
+    http.expectOne('/api/auth/csrf').flush({ token: 'csrf-token' });
+    http.expectOne('/api/auth/refresh').flush({ accessToken: 'new-access', expiresIn: 900, userId: 'user-1', email: 'amira@example.test', roles: ['CUSTOMER'] });
+    http.expectOne('/api/auth/csrf').flush({ token: 'csrf-token-2' });
+    http.expectOne('/api/auth/me').flush({ id: 'user-1', firstName: 'Amira', lastName: 'Ben Salem', email: 'amira@example.test', phone: '', roles: ['CUSTOMER'], status: 'ACTIVE' });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(service.session()?.firstName).toBe('Amira');
+  });
 });

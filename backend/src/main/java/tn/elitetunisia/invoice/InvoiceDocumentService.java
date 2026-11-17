@@ -4,7 +4,7 @@ import java.util.UUID;
 
 public interface InvoiceDocumentService {
     /**
-     * Generate a PDF document for the invoice. Not implemented in this iteration.
+     * Generate a PDF document for the invoice.
      * @return raw PDF bytes
      */
     byte[] generatePdf(UUID invoiceId);

@@ -18,7 +18,7 @@ import { CatalogueApiService, BrandSummary, CategorySummary, VehicleFilters, Veh
       @if (!loading() && vehicles().length === 0) { <div class="empty-state"><strong>Aucun véhicule enregistré</strong><p>Les véhicules créés apparaîtront dans cette liste.</p></div> }
       @if (vehicles().length > 0) { <div class="table-wrap"><table><thead><tr><th>Véhicule</th><th>Catégorie</th><th>Tarif / jour</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
         @for (vehicle of vehicles(); track vehicle.id) { <tr><td><strong>{{ vehicle.brand.name }} {{ vehicle.model }}</strong><small>{{ vehicle.year }} · {{ vehicle.transmission === 'AUTOMATIC' ? 'Automatique' : vehicle.transmission === 'MANUAL' ? 'Manuelle' : 'Séquentielle' }}</small></td><td>{{ vehicle.category.name }}</td><td>{{ price(vehicle.pricePerDay, vehicle.currency) }}</td><td>
-          @if (canManage()) { <select class="status-select" [value]="vehicle.status" (change)="setStatus(vehicle, statusValue($event))"><option value="AVAILABLE">Disponible</option><option value="RESERVED">Réservé</option><option value="RENTED">Loué</option><option value="MAINTENANCE">Maintenance</option><option value="UNAVAILABLE">Masqué</option></select> }
+          @if (canManage()) { <select class="status-select" [value]="vehicle.status" (change)="setStatus(vehicle, statusValue($event))"><option value="AVAILABLE">Disponible</option><option value="RESERVED">Réservé</option><option value="RENTED">Loué</option><option value="MAINTENANCE">Maintenance</option><option value="UNAVAILABLE">Masqué</option><option value="ARCHIVED">Archivé</option></select> }
           @else { <span class="status" [class.inactive]="vehicle.status !== 'AVAILABLE'">{{ statusLabel(vehicle.status) }}</span> }
         </td><td class="actions">@if (canManage()) { <button class="text-action" type="button" (click)="edit(vehicle)">Modifier</button><button class="text-action danger" type="button" (click)="remove(vehicle)">Supprimer</button> } @else { <span class="read-only">Consultation</span> }</td></tr> }
       </tbody></table></div>
@@ -39,7 +39,7 @@ import { CatalogueApiService, BrandSummary, CategorySummary, VehicleFilters, Veh
               <label class="field"><span>Prix / jour</span><input type="number" formControlName="pricePerDay" min="0.001" step="0.001"></label>
               <label class="field"><span>Prix / semaine</span><input type="number" formControlName="pricePerWeek" min="0.001" step="0.001"></label>
               <label class="field"><span>Devise ISO</span><input formControlName="currency" maxlength="3"></label>
-              <label class="field"><span>Statut flotte</span><select formControlName="status"><option value="AVAILABLE">Disponible</option><option value="RESERVED">Réservé</option><option value="RENTED">Loué</option><option value="MAINTENANCE">Maintenance</option><option value="UNAVAILABLE">Masqué</option></select></label>
+              <label class="field"><span>Statut flotte</span><select formControlName="status"><option value="AVAILABLE">Disponible</option><option value="RESERVED">Réservé</option><option value="RENTED">Loué</option><option value="MAINTENANCE">Maintenance</option><option value="UNAVAILABLE">Masqué</option><option value="ARCHIVED">Archivé</option></select></label>
             </div>
             <label class="field driver-toggle"><input type="checkbox" formControlName="withDriverAvailable"><span>Service chauffeur proposé</span></label>
             @if (form.controls.withDriverAvailable.value) { <label class="field"><span>Tarif avec chauffeur / jour</span><input type="number" formControlName="priceWithDriver" min="0.001" step="0.001"></label> }
@@ -126,7 +126,7 @@ export class AdminVehiclesComponent implements OnInit {
     catch { return `${value} ${currency}`; }
   }
   protected statusLabel(status: VehicleSummary['status']): string {
-    return ({ AVAILABLE: 'Disponible', RESERVED: 'Réservé', RENTED: 'Loué', MAINTENANCE: 'Maintenance', UNAVAILABLE: 'Masqué' })[status];
+    return ({ AVAILABLE: 'Disponible', RESERVED: 'Réservé', RENTED: 'Loué', MAINTENANCE: 'Maintenance', UNAVAILABLE: 'Masqué', ARCHIVED: 'Archivé' })[status];
   }
   protected statusValue(event: Event): VehicleSummary['status'] { return (event.target as HTMLSelectElement).value as VehicleSummary['status']; }
 

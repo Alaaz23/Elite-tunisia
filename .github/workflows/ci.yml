@@ -56,7 +56,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Le harnais n'accepte que 127.0.0.1:15432/et_test_db avec l'utilisateur et_test.
+      # Le harnais n'accepte que 127.0.0.1:15432/postgres (cluster d'administration) avec l'utilisateur et_test ;
+      # il crée lui-même une base temporaire et_a4_it_* qu'il supprime à la fin de la JVM.
       - name: Démarrer PostgreSQL 18 jetable
         run: |
           PGPW="$(openssl rand -hex 24)"
@@ -79,9 +80,9 @@ jobs:
       - name: Tests PostgreSQL (surefire + failsafe)
         env:
           ELITE_POSTGRES_TEST: 'true'
-          DATABASE_URL: jdbc:postgresql://127.0.0.1:15432/et_test_db
-          DATABASE_USERNAME: et_test
-          DATABASE_PASSWORD: ${{ env.PGPW }}
+          ELITE_A4_PG_URL: jdbc:postgresql://127.0.0.1:15432/postgres
+          ELITE_A4_PG_USER: et_test
+          ELITE_A4_PG_PASSWORD: ${{ env.PGPW }}
         run: bash ./mvnw -B -ntp -Ppostgres-test verify
       - name: Conserver les rapports de tests
         if: always()

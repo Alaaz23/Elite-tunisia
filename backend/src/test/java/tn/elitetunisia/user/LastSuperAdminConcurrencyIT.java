@@ -20,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import tn.elitetunisia.PostgresTestHelper;
+import tn.elitetunisia.TestIdentities;
 import tn.elitetunisia.common.exception.DomainException;
 import tn.elitetunisia.user.dto.CreateEmployeeRequest;
 import tn.elitetunisia.user.dto.UpdateEmployeeRequest;
@@ -44,7 +45,7 @@ class LastSuperAdminConcurrencyIT {
     }
 
     private UUID newSuperAdmin() {
-        String email = "concurrent-" + UUID.randomUUID() + "@example.test";
+        String email = TestIdentities.email("concurrent");
         return service.create(new CreateEmployeeRequest("Test", "Admin", email, "+21612345678",
                 "Passw0rd!Passw0rd", "SUPER_ADMIN", "Test"), null, "127.0.0.1").id();
     }
@@ -64,8 +65,12 @@ class LastSuperAdminConcurrencyIT {
         return others;
     }
 
-    private void restore(List<UUID> ids) {
-        ids.forEach(id -> jdbc.update("update users set enabled = true where id = ?", id));
+    /** Réactive les comptes préexistants désactivés pendant le test, puis désactive les comptes créés par ce test. */
+    private void restore(List<UUID> others, UUID... created) {
+        others.forEach(id -> jdbc.update("update users set enabled = true where id = ?", id));
+        for (UUID id : created) {
+            jdbc.update("update users set enabled = false where id = ?", id);
+        }
     }
 
     /** Lance les deux opérations au même instant ; retourne le nombre de succès et vérifie que les autres échouent par LAST_SUPER_ADMIN. */
@@ -112,7 +117,7 @@ class LastSuperAdminConcurrencyIT {
                 assertEquals(1, activeSuperAdmins(), "round " + round);
             }
         } finally {
-            restore(others);
+            restore(others, a, b);
         }
     }
 
@@ -126,7 +131,7 @@ class LastSuperAdminConcurrencyIT {
             assertEquals(1, successes);
             assertEquals(1, activeSuperAdmins());
         } finally {
-            restore(others);
+            restore(others, a, b);
         }
     }
 

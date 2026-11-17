@@ -1,5 +1,8 @@
 HELP.md
 target/
+# Journaux et snapshots Git générés par les lots (racine de backend uniquement)
+/*.log
+/*-git-*.txt
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

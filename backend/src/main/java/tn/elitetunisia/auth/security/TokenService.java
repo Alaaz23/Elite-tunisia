@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
@@ -21,6 +22,9 @@ public class TokenService {
 
     public TokenService(@Value("${app.security.jwt.secret}") String secret,
             @Value("${app.security.jwt.access-token-minutes}") long accessTokenMinutes) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("JWT_SECRET must be set and must not be blank.");
+        }
         byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (secretBytes.length < 32) {
             throw new IllegalStateException("JWT_SECRET must contain at least 32 bytes.");
@@ -40,7 +44,11 @@ public class TokenService {
     }
 
     public Claims parse(String token) {
-        return Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+        Claims claims = Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+        if (claims.getExpiration() == null) {
+            throw new JwtException("Access token without expiration is rejected.");
+        }
+        return claims;
     }
 
     public long accessTokenSeconds() {

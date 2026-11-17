@@ -51,7 +51,7 @@ Base locale : `http://localhost:8080`. OpenAPI est disponible sur `/api-docs` et
 
 `BookingRequest` : vehicleId, startDateTime, endDateTime, pickupLocation, dropoffLocation, customerNote facultatif. Aucun customerId, reference, status ou montant envoyé par le navigateur n'est une source de vérité.
 
-PENDING ne bloque pas selon le choix du commanditaire : la garantie anti-chevauchement porte sur CONFIRMED/IN_PROGRESS, pas sur deux demandes en attente. Les règles précises, erreurs et limites sont dans [booking.md](booking.md).
+PENDING ne bloque pas la disponibilité, et plusieurs demandes PENDING peuvent coexister sur les mêmes dates. Aucune expiration automatique. La garantie anti-chevauchement porte sur CONFIRMED/IN_PROGRESS, et la confirmation effectue le contrôle définitif. Les règles précises, erreurs et limites sont dans [booking.md](booking.md).
 
 ## Devis (étape 6)
 

@@ -1,2 +1,4 @@
 org.springframework.context.ApplicationContextInitializer=tn.elitetunisia.TestContextInitializer
-org.springframework.test.context.TestExecutionListener=tn.elitetunisia.EarlyTestPropertySetter
+org.springframework.boot.env.EnvironmentPostProcessor=tn.elitetunisia.PostgresDdlSafetyPostProcessor
+org.springframework.test.context.TestExecutionListener=tn.elitetunisia.EarlyTestPropertySetter,\
+  tn.elitetunisia.TestAccountCleanupListener
