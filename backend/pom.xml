@@ -260,7 +260,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-failsafe-plugin</artifactId>
-						<version>3.5.6</version>
+						<version>3.6.1</version>
 						<configuration>
 							<!-- Pinned to the abandoned 15432 cluster and CREATE/DROP DATABASE: excluded, not counted as passed. -->
 							<excludes>
